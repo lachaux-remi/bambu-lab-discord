@@ -3,7 +3,7 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "Node",
-    "rootDir": "./",
+    "baseUrl": "./",
     "resolveJsonModule": true,
     "outDir": "./dist",
     "esModuleInterop": true,
@@ -16,6 +16,11 @@
   "ts-node": {
     "esm": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }
