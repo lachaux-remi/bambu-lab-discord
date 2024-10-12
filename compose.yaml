@@ -4,4 +4,3 @@ services:
       context: .
     environment:
       NODE_ENV: production
-
