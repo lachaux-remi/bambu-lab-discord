@@ -4,3 +4,12 @@ services:
       context: .
     environment:
       NODE_ENV: production
+    command:
+      #      dont stop the container on startup
+      - sh
+      - -c
+      - |
+        while true; do
+          pnpm start
+        done
+
