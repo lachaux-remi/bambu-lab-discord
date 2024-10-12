@@ -49,17 +49,8 @@ export default class {
       if (data.subtask_name) {
         newStatus.taskName = data.subtask_name;
       }
-
-      if (data.ams.tray_now) {
-        const currentTray = data.ams.ams
-          .find(ams => ams.tray.some(tray => tray?.id === data.ams.tray_now))
-          ?.tray.find(tray => tray?.id === data.ams.tray_now);
-
-        if (currentTray) {
-          newStatus.trayColor = `#${currentTray.tray_color}`;
-          newStatus.trayType = currentTray.tray_type;
-        }
-      }
+    } else {
+      return;
     }
 
     const oldStatus = { ...this.latestStatus };
