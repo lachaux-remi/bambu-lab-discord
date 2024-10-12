@@ -1,4 +1,6 @@
+import { S3_BUCKET, S3_ENDPOINT } from "../../constants";
 import { MessageCommand } from "../../enums";
+import { uploadProjectImage } from "../../libs/s3-storage";
 import type { PrintMessageCommand } from "../../types/printer-messages";
 import type { Status } from "../../types/printer-status";
 import type { ProjectFileCommand } from "../../types/project-file";
@@ -10,21 +12,21 @@ export default class {
 
   public constructor(private client: BambuLabClient) {}
 
-  public onUpdate(data: PrintMessageCommand): void {
+  public async onUpdate(data: PrintMessageCommand): Promise<void> {
     const newStatus: Status = {} as Status;
 
     if (this.isProjectFileCommand(data)) {
-      if (data.subtask_name) {
-        newStatus.taskName = data.subtask_name;
+      newStatus.taskName = data.subtask_name;
+
+      if (data.url.startsWith("https://")) {
+        await uploadProjectImage(data.url, data.subtask_name, data.plate_idx);
       }
 
-      if (data.url) {
-        newStatus.url = data.url;
-      }
+      newStatus.projectImageUrl = encodeURI(
+        `${S3_ENDPOINT}/${S3_BUCKET}/projects/${data.subtask_name}.${data.plate_idx}.png`
+      );
 
-      if (data.timestamp) {
-        newStatus.startedAt = data.timestamp;
-      }
+      newStatus.startedAt = data.timestamp;
     } else if (this.isPushStatusCommand(data)) {
       if (data.gcode_state) {
         newStatus.state = data.gcode_state;

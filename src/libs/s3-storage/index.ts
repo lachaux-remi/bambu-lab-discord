@@ -1,3 +1,4 @@
+import AdmZip from "adm-zip";
 import AWS from "aws-sdk";
 
 import {
@@ -8,11 +9,7 @@ import {
   S3_SECRET_ACCESS_KEY,
   S3_SIGNATURE_VERSION
 } from "../../constants";
-import type { Status } from "../../types/printer-status";
-import { getLogger } from "../logger";
 import { takeScreenshotBuffer } from "../rtc";
-
-const logger = getLogger("S3Storage");
 
 const s3Storage = new AWS.S3({
   endpoint: S3_ENDPOINT,
@@ -33,25 +30,46 @@ const upload = async (key: string, body: Buffer, contentType: string): Promise<s
       ContentType: contentType
     })
     .promise()
-    .then(upload => upload.Location);
+    .then(upload => upload.Location)
+    .catch(() => null);
 };
 
-export const getScreenshotURL = async (): Promise<string | null> => {
-  const screenshotBuffer = await takeScreenshotBuffer();
-
-  return await upload(`screenshot/${new Date().getTime()}.jpeg`, Buffer.from(screenshotBuffer), "image/jpeg").catch(
-    error => {
-      logger.error({ message: error.message }, "Error uploading screenshot to S3");
-      return null;
-    }
-  );
-};
-
-export const getProjectURL = async (status: Status): Promise<string | null> => {
-  const projectBuffer = await fetch(status.url).then(res => res.arrayBuffer());
-
-  return await upload(`projects/${status.taskName}.3mf`, Buffer.from(projectBuffer), "application/zip").catch(error => {
-    logger.error({ message: error.message }, "Error uploading project to S3");
+/**
+ * Finds the plate image in the project and uploads it to S3.
+ *
+ * @param {string} url The URL of the project file.
+ * @param {string} name The name of the project.
+ * @param {string} plate The name of the plate.
+ *
+ * @returns {Promise<void>}
+ */
+export const uploadProjectImage = async (url: string, name: string, plate: string): Promise<string | null> => {
+  const projectBuffer = await fetch(url)
+    .then(res => res.arrayBuffer())
+    .catch(() => null);
+  if (!projectBuffer) {
     return null;
-  });
+  }
+
+  const projectZip = new AdmZip(Buffer.from(projectBuffer));
+  const plateEntry = projectZip.getEntry(`Metadata/plate_${plate}.png`);
+  if (!plateEntry) {
+    return null;
+  }
+
+  return await upload(`projects/${name}.${plate}.png`, plateEntry.getData(), "image/png");
+};
+
+/**
+ * Uploads the screenshot from RTC to S3.
+ *
+ * @returns { string | null } The URL of the screenshot.
+ */
+export const uploadScreenshot = async (): Promise<string | null> => {
+  const screenshotBuffer = await takeScreenshotBuffer();
+  if (!screenshotBuffer) {
+    return null;
+  }
+
+  return await upload(`screenshot/${new Date().getTime()}.jpeg`, screenshotBuffer, "image/jpeg");
 };

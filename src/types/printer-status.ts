@@ -8,7 +8,7 @@ export interface Status {
   startedAt: number;
   remainingTime: number;
   taskName: string;
-  url: string;
+  projectImageUrl: string;
   trayColor: `#${string}`;
   trayType: string;
 }
