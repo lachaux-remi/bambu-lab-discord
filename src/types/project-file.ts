@@ -1,5 +1,5 @@
-import type { PrintMessageCommand } from ".";
 import { MessageCommand } from "../enums";
+import type { PrintMessageCommand } from "./printer-messages";
 
 export interface ProjectFileCommand extends PrintMessageCommand {
   command: MessageCommand.PROJECT_FILE;

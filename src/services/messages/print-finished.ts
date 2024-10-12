@@ -2,7 +2,7 @@ import { EmbedBuilder } from "discord.js";
 
 import { NOTIFICATION_COLOR, NOTIFICATION_FOOTER_ICON, NOTIFICATION_FOOTER_TEXT } from "../../constants";
 import { getScreenshotURL } from "../../libs/s3-storage";
-import type { Status } from "../../types";
+import type { Status } from "../../types/printer-status";
 import { formatMinuteToBestDisplay, timeDiffInMinutes } from "../../utils/time.util";
 
 export const printFinished = async (status: Status) => {

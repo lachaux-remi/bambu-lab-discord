@@ -1,5 +1,6 @@
-import type { IntRange, PrintMessageCommand, StringNumber } from ".";
 import { MessageCommand, PrintState } from "../enums";
+import type { IntRange, StringNumber } from "./general";
+import type { PrintMessageCommand } from "./printer-messages";
 
 export interface PushStatusCommand extends PrintMessageCommand {
   command: MessageCommand.PUSH_STATUS;

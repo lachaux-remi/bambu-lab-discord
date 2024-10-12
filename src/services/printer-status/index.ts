@@ -1,5 +1,8 @@
 import { MessageCommand } from "../../enums";
-import type { PrintMessageCommand, ProjectFileCommand, PushStatusCommand, Status } from "../../types";
+import type { PrintMessageCommand } from "../../types/printer-messages";
+import type { Status } from "../../types/printer-status";
+import type { ProjectFileCommand } from "../../types/project-file";
+import type { PushStatusCommand } from "../../types/push-status";
 import BambuLabClient from "../bambu-lab";
 
 export default class {

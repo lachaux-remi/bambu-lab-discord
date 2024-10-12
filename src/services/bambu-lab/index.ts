@@ -9,7 +9,8 @@ import {
 } from "../../constants";
 import { MessageCommand } from "../../enums";
 import { getLogger } from "../../libs/logger";
-import type { ClientEvents, PrintMessage } from "../../types";
+import type { ClientEvents } from "../../types/client-events";
+import type { PrintMessage } from "../../types/printer-messages";
 import PrinterStatus from "../printer-status";
 
 const logger = getLogger("BambuLab");

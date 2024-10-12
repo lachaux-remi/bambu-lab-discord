@@ -8,7 +8,7 @@ import {
   S3_SECRET_ACCESS_KEY,
   S3_SIGNATURE_VERSION
 } from "../../constants";
-import type { Status } from "../../types";
+import type { Status } from "../../types/printer-status";
 import { getLogger } from "../logger";
 import { takeScreenshotBuffer } from "../rtc";
 
