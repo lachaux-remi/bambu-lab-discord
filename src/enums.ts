@@ -12,3 +12,8 @@ export enum PrintState {
   FINISH = "FINISH",
   IDLE = "IDLE"
 }
+
+export enum ContentType {
+  IMAGE_PNG = "image/png",
+  IMAGE_JPEG = "image/jpeg"
+}

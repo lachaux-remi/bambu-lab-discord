@@ -7,7 +7,8 @@ export const takeScreenshotBuffer = async (): Promise<Buffer | null> => {
   return fetch(RTC_URL)
     .then(async response => {
       if (!response.ok) {
-        logger.error(`Failed to get screenshot from ${RTC_URL}`);
+        logger.error({ response }, `Failed to get screenshot`);
+        return null;
       }
 
       return Buffer.from(await response.arrayBuffer());

@@ -1,12 +1,12 @@
 /**
  * Calculate the time difference between two dates in minutes
  *
- * @param {Date} start The start date
- * @param {Date} end The end date
+ * @param {number} start The start timestamp
+ * @param {number} end The end timestamp
  * @returns {number} The time difference in minutes
  */
-export const timeDiffInMinutes = (start: Date, end: Date): number => {
-  return Math.floor((end.getTime() - start.getTime()) / 1000 / 60);
+export const timeDiffInMinutes = (start: number, end: number): number => {
+  return Math.floor((end - start) / 1000 / 60);
 };
 
 /**
@@ -23,5 +23,5 @@ export const formatMinuteToBestDisplay = (minute: number): string => {
   const hours = Math.floor(minute / 60);
   const minutes = minute % 60;
 
-  return `${hours}h${minutes}m`;
+  return `${hours} heure${hours > 1 ? "s" : ""} ${minutes} minute${minutes > 1 ? "s" : ""}`;
 };

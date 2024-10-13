@@ -8,7 +8,7 @@ import { formatMinuteToBestDisplay, timeDiffInMinutes } from "../../utils/time.u
 export const printFinished = async (status: Status) => {
   let time = "";
   if (status.startedAt) {
-    const timeDiff = timeDiffInMinutes(new Date(), new Date(status.startedAt));
+    const timeDiff = timeDiffInMinutes(status.startedAt, new Date().getTime());
     time = ` en ${formatMinuteToBestDisplay(timeDiff)}`;
   }
 
