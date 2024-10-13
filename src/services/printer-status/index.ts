@@ -19,12 +19,10 @@ export default class {
       newStatus.taskName = data.subtask_name;
 
       if (data.url.startsWith("https://")) {
-        await uploadProjectImage({ url: data.url, name: data.subtask_name, plate: data.plate_idx });
+        uploadProjectImage({ url: data.url, name: data.subtask_name, plate: data.plate_idx }).catch(() => true);
       }
 
-      newStatus.projectImageUrl = encodeURI(
-        `${S3_ENDPOINT}/${S3_BUCKET}/projects/${data.subtask_name}.${data.plate_idx}.png`
-      );
+      newStatus.projectImageUrl = encodeURI(`${S3_ENDPOINT}/${S3_BUCKET}/projects/${data.subtask_name}.png`);
 
       newStatus.currentLayer = 0;
       newStatus.maxLayers = 0;
@@ -32,6 +30,10 @@ export default class {
       newStatus.remainingTime = 0;
       newStatus.startedAt = new Date().getTime();
     } else if (this.isPushStatusCommand(data)) {
+      if (data.subtask_name) {
+        newStatus.taskName = data.subtask_name;
+      }
+
       if (data.gcode_state) {
         newStatus.state = data.gcode_state;
       }
