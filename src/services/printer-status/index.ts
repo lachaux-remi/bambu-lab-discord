@@ -19,7 +19,7 @@ export default class {
       newStatus.taskName = data.subtask_name;
 
       if (data.url.startsWith("https://")) {
-        uploadProjectImage({ url: data.url, name: data.subtask_name, plate: data.plate_idx }).catch(() => true);
+        await uploadProjectImage({ url: data.url, name: data.subtask_name, plate: data.plate_idx });
       }
 
       newStatus.projectImageUrl = encodeURI(`${S3_ENDPOINT}/${S3_BUCKET}/projects/${data.subtask_name}.png`);

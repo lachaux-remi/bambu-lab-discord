@@ -21,14 +21,14 @@ bambuLabClient.on("status", async (newStatus, oldStatus) => {
   oldStatus.state = oldStatus.state ?? PrintState.UNKNOWN;
 
   if (
-    [PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(oldStatus.state) &&
-    [PrintState.PREPARE, PrintState.RUNNING].includes(newStatus.state)
+    [PrintState.PREPARE, PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(oldStatus.state) &&
+    [PrintState.RUNNING].includes(newStatus.state)
   ) {
     lastProgressPercent = 0;
     logger.info("Print started");
     return await sendWebhookMessage(await printStarted(newStatus));
   } else if (
-    [PrintState.PREPARE, PrintState.RUNNING].includes(oldStatus.state) &&
+    [PrintState.RUNNING].includes(oldStatus.state) &&
     [PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(newStatus.state)
   ) {
     if (newStatus.state === PrintState.FINISH) {
@@ -58,12 +58,12 @@ bambuLabClient.on("status", async (newStatus, oldStatus) => {
     return;
   } else if (
     [PrintState.UNKNOWN].includes(oldStatus.state) &&
-    [PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(newStatus.state)
+    [PrintState.PREPARE, PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(newStatus.state)
   ) {
     // this usually only happens when the client connects, all of which we ignore
     return;
   } else if (
-    [PrintState.FINISH, PrintState.FAILED].includes(oldStatus.state) &&
+    [PrintState.PREPARE, PrintState.FINISH, PrintState.FAILED].includes(oldStatus.state) &&
     [PrintState.IDLE].includes(newStatus.state)
   ) {
     // this happens right before a job start, but since IDLE doesn't mean the print has started, we don't do anything
