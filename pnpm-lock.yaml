@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@types/adm-zip':
-        specifier: ^0.5.5
-        version: 0.5.5
       adm-zip:
         specifier: ^0.5.16
         version: 0.5.16
@@ -33,6 +30,9 @@ importers:
       '@trivago/prettier-plugin-sort-imports':
         specifier: ^4.3.0
         version: 4.3.0(prettier@3.3.3)
+      '@types/adm-zip':
+        specifier: ^0.5.5
+        version: 0.5.5
       '@types/eslint__js':
         specifier: ^8.42.3
         version: 8.42.3
