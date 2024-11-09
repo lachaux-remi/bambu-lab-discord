@@ -39,20 +39,22 @@ export default class {
         newStatus.state = data.gcode_state;
       }
 
-      if (data.layer_num) {
-        newStatus.currentLayer = data.layer_num;
-      }
+      if (this.latestStatus.state === PrintState.RUNNING) {
+        if (data.layer_num) {
+          newStatus.currentLayer = data.layer_num;
+        }
 
-      if (data.total_layer_num) {
-        newStatus.maxLayers = data.total_layer_num;
-      }
+        if (data.total_layer_num) {
+          newStatus.maxLayers = data.total_layer_num;
+        }
 
-      if (data.mc_percent) {
-        newStatus.progressPercent = Number(data.mc_percent);
-      }
+        if (data.mc_percent) {
+          newStatus.progressPercent = Number(data.mc_percent);
+        }
 
-      if (data.mc_remaining_time) {
-        newStatus.remainingTime = Number(data.mc_remaining_time);
+        if (data.mc_remaining_time) {
+          newStatus.remainingTime = Number(data.mc_remaining_time);
+        }
       }
     } else {
       return;
