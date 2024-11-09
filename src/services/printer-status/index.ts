@@ -1,5 +1,5 @@
 import { S3_BUCKET, S3_ENDPOINT } from "../../constants";
-import { MessageCommand } from "../../enums";
+import { MessageCommand, PrintState } from "../../enums";
 import { uploadProjectImage } from "../../libs/s3-storage";
 import type { PrintMessageCommand } from "../../types/printer-messages";
 import type { Status } from "../../types/printer-status";
@@ -24,6 +24,7 @@ export default class {
 
       newStatus.projectImageUrl = encodeURI(`${S3_ENDPOINT}/${S3_BUCKET}/projects/${data.subtask_name}.png`);
 
+      newStatus.state = PrintState.PREPARE;
       newStatus.currentLayer = 0;
       newStatus.maxLayers = 0;
       newStatus.progressPercent = 0;
