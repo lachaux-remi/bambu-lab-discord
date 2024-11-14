@@ -74,7 +74,7 @@ export const uploadProjectImage = async (data: UploadProjectImage, attempt: numb
     return null;
   }
 
-  return await upload(`projects/${name}.png`, plateEntry.getData(), ContentType.IMAGE_PNG);
+  return await upload(`projects/${name}-${plate}.png`, plateEntry.getData(), ContentType.IMAGE_PNG);
 };
 
 /**
