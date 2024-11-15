@@ -22,7 +22,9 @@ export default class {
         await uploadProjectImage({ url: data.url, name: data.subtask_name, plate: data.plate_idx });
       }
 
-      newStatus.projectImageUrl = encodeURI(`${S3_ENDPOINT}/${S3_BUCKET}/projects/${data.subtask_name}.png`);
+      newStatus.projectImageUrl = encodeURI(
+        `${S3_ENDPOINT}/${S3_BUCKET}/projects/${data.subtask_name}-${data.plate_idx}.png`
+      );
 
       newStatus.state = PrintState.PREPARE;
       newStatus.currentLayer = 0;
