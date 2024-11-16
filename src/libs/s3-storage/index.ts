@@ -11,10 +11,11 @@ import {
   S3_SIGNATURE_VERSION
 } from "../../constants";
 import { ContentType } from "../../enums";
+import type { StringNumber } from "../../types/general";
 import { getLogger } from "../logger";
 import { takeScreenshotBuffer } from "../rtc";
 
-type UploadProjectImage = { url: string; name: string; plate: string };
+type UploadProjectImage = { url: string; model: string; project: string; plate: StringNumber };
 
 const logger = getLogger("S3 Storage");
 const s3Storage = new AWS.S3({
@@ -56,7 +57,7 @@ export const uploadProjectImage = async (data: UploadProjectImage, attempt: numb
     return null;
   }
 
-  const { url, name, plate } = data;
+  const { url, model, project, plate } = data;
 
   const projectBuffer = await fetch(url)
     .then(res => res.arrayBuffer())
@@ -74,7 +75,7 @@ export const uploadProjectImage = async (data: UploadProjectImage, attempt: numb
     return null;
   }
 
-  return await upload(`projects/${name}-${plate}.png`, plateEntry.getData(), ContentType.IMAGE_PNG);
+  return await upload(`projects/${project}/${model}.png`, plateEntry.getData(), ContentType.IMAGE_PNG);
 };
 
 /**

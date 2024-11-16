@@ -7,7 +7,7 @@ import type { Status } from "../../types/printer-status";
 export const printFailed = async (status: Status) => {
   return new EmbedBuilder()
     .setTitle("Impression échouée")
-    .setDescription(`L'imprimante a échoué à imprimer **${status.taskName}**.`)
+    .setDescription(`L'imprimante a échoué à imprimer **${status.project}**.`)
     .setColor(NOTIFICATION_COLOR)
     .setFooter({
       text: NOTIFICATION_FOOTER_TEXT,

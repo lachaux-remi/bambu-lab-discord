@@ -1,4 +1,3 @@
-import { S3_BUCKET, S3_ENDPOINT } from "../../constants";
 import { MessageCommand, PrintState } from "../../enums";
 import { uploadProjectImage } from "../../libs/s3-storage";
 import type { PrintMessageCommand } from "../../types/printer-messages";
@@ -16,15 +15,18 @@ export default class {
     const newStatus: Status = {} as Status;
 
     if (this.isProjectFileCommand(data)) {
-      newStatus.taskName = data.subtask_name;
+      newStatus.model = data.model_id;
+      newStatus.project = data.subtask_name;
+      newStatus.plate = data.plate_idx;
 
       if (data.url.startsWith("https://")) {
-        await uploadProjectImage({ url: data.url, name: data.subtask_name, plate: data.plate_idx });
+        newStatus.projectImageUrl = await uploadProjectImage({
+          url: data.url,
+          model: data.model_id,
+          project: data.subtask_name,
+          plate: data.plate_idx
+        });
       }
-
-      newStatus.projectImageUrl = encodeURI(
-        `${S3_ENDPOINT}/${S3_BUCKET}/projects/${data.subtask_name}-${data.plate_idx}.png`
-      );
 
       newStatus.state = PrintState.PREPARE;
       newStatus.currentLayer = 0;
@@ -34,7 +36,7 @@ export default class {
       newStatus.startedAt = new Date().getTime();
     } else if (this.isPushStatusCommand(data)) {
       if (data.subtask_name) {
-        newStatus.taskName = data.subtask_name;
+        newStatus.project = data.subtask_name;
       }
 
       if (data.gcode_state) {

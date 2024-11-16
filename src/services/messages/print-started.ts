@@ -6,7 +6,7 @@ import type { Status } from "../../types/printer-status";
 export const printStarted = async (status: Status) => {
   return new EmbedBuilder()
     .setTitle("Démarrage de l'impression")
-    .setDescription(`L'imprimante ce prépare pour imprimer **${status.taskName}**`)
+    .setDescription(`L'imprimante ce prépare pour imprimer **${status.project}**\n${status.model}`)
     .setColor(NOTIFICATION_COLOR)
     .setFooter({
       text: NOTIFICATION_FOOTER_TEXT,

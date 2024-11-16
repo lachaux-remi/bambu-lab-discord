@@ -1,4 +1,5 @@
 import { PrintState } from "../enums";
+import type { StringNumber } from "./general";
 
 export interface Status {
   state: PrintState;
@@ -7,8 +8,10 @@ export interface Status {
   progressPercent: number;
   startedAt: number;
   remainingTime: number;
-  taskName: string;
-  projectImageUrl: string;
+  model: string;
+  project: string;
+  projectImageUrl: string | null;
+  plate: StringNumber;
   trayColor: `#${string}`;
   trayType: string;
 }
