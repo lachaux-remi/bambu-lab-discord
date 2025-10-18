@@ -4,13 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] - 2025-10-18
+
 ### Added
 - Détection des impressions annulées vs terminées basée sur le pourcentage de progression
 - Nouveau message `printCancelled` pour les impressions annulées avant 100%
 - Script de débogage MQTT (`pnpm run debug:mqtt`) pour capturer les messages bruts de l'imprimante
 - Logs de débogage détaillés à tous les niveaux (BambuLabClient, PrinterStatus, Application)
 - Guide de dépannage complet (TROUBLESHOOTING.md) pour diagnostiquer les problèmes d'événements MQTT
-- Documentation CLAUDE.md pour les instances futures de Claude Code
+- Documentation complète : README.md, CHANGELOG.md, CLAUDE.md
 - Filtrage intelligent des événements non critiques (températures, wifi) pour éviter les notifications inutiles
 
 ### Changed
