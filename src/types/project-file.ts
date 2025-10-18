@@ -4,9 +4,9 @@ import type { PrintMessageCommand } from "./printer-messages";
 
 export interface ProjectFileCommand extends PrintMessageCommand {
   command: MessageCommand.PROJECT_FILE;
-  model_id: string;
-  plate_idx: StringNumber;
-  subtask_name: string;
-  url: string;
-  timestamp: number;
+  model_id?: string;
+  plate_idx?: StringNumber;
+  subtask_name?: string;
+  url?: string;
+  timestamp?: number;
 }

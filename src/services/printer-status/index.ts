@@ -1,10 +1,13 @@
 import { MessageCommand, PrintState } from "../../enums";
+import { getLogger } from "../../libs/logger";
 import { uploadProjectImage } from "../../libs/s3-storage";
 import type { PrintMessageCommand } from "../../types/printer-messages";
 import type { Status } from "../../types/printer-status";
 import type { ProjectFileCommand } from "../../types/project-file";
 import type { PushStatusCommand } from "../../types/push-status";
 import BambuLabClient from "../bambu-lab";
+
+const logger = getLogger("PrinterStatus");
 
 export default class {
   private latestStatus: Status = {} as Status;
@@ -15,11 +18,24 @@ export default class {
     const newStatus: Status = {} as Status;
 
     if (this.isProjectFileCommand(data)) {
-      newStatus.model = data.model_id;
-      newStatus.project = data.subtask_name;
-      newStatus.plate = data.plate_idx;
+      logger.debug(
+        { model: data.model_id, project: data.subtask_name, plate: data.plate_idx },
+        "Project file received"
+      );
 
-      if (data.url.startsWith("https://")) {
+      if (data.model_id) {
+        newStatus.model = data.model_id;
+      }
+
+      if (data.subtask_name) {
+        newStatus.project = data.subtask_name;
+      }
+
+      if (data.plate_idx) {
+        newStatus.plate = data.plate_idx;
+      }
+
+      if (data.url && data.url.startsWith("https://") && data.model_id && data.subtask_name && data.plate_idx) {
         newStatus.projectImageUrl = await uploadProjectImage({
           url: data.url,
           model: data.model_id,
@@ -35,6 +51,18 @@ export default class {
       newStatus.remainingTime = 0;
       newStatus.startedAt = new Date().getTime();
     } else if (this.isPushStatusCommand(data)) {
+      logger.debug(
+        {
+          subtask: data.subtask_name,
+          state: data.gcode_state,
+          layer: data.layer_num,
+          total: data.total_layer_num,
+          percent: data.mc_percent
+        },
+        "Push status received"
+      );
+
+      // Mettre à jour tous les champs présents dans le message
       if (data.subtask_name) {
         newStatus.project = data.subtask_name;
       }
@@ -42,31 +70,48 @@ export default class {
       if (data.gcode_state) {
         newStatus.state = data.gcode_state;
       }
+      // Mettre à jour les informations de progression si elles sont présentes
+      // (indépendamment de l'état actuel, car les messages sont incrémentaux)
+      if (data.layer_num !== undefined) {
+        newStatus.currentLayer = data.layer_num;
+      }
 
-      if (this.latestStatus.state === PrintState.RUNNING) {
-        if (data.layer_num) {
-          newStatus.currentLayer = data.layer_num;
-        }
+      if (data.total_layer_num !== undefined) {
+        newStatus.maxLayers = data.total_layer_num;
+      }
 
-        if (data.total_layer_num) {
-          newStatus.maxLayers = data.total_layer_num;
-        }
+      if (data.mc_percent !== undefined) {
+        newStatus.progressPercent = Number(data.mc_percent);
+      }
 
-        if (data.mc_percent) {
-          newStatus.progressPercent = Number(data.mc_percent);
-        }
-
-        if (data.mc_remaining_time) {
-          newStatus.remainingTime = Number(data.mc_remaining_time);
-        }
+      if (data.mc_remaining_time !== undefined) {
+        newStatus.remainingTime = Number(data.mc_remaining_time);
       }
     } else {
+      logger.warn({ command: data.command, keys: Object.keys(data) }, "Unknown message command type");
       return;
     }
 
     const oldStatus = { ...this.latestStatus };
     this.latestStatus = Object.assign(this.latestStatus, newStatus);
-    this.client.emit("status", this.latestStatus, oldStatus);
+
+    // Émettre l'événement seulement si des champs importants ont changé
+    const hasImportantChanges =
+      newStatus.state !== undefined ||
+      newStatus.progressPercent !== undefined ||
+      newStatus.currentLayer !== undefined ||
+      newStatus.project !== undefined ||
+      newStatus.projectImageUrl !== undefined;
+
+    if (hasImportantChanges) {
+      logger.debug(
+        { oldState: oldStatus.state, newState: this.latestStatus.state, changes: Object.keys(newStatus) },
+        "Status updated, emitting event"
+      );
+      this.client.emit("status", this.latestStatus, oldStatus);
+    } else {
+      logger.debug({ changes: Object.keys(newStatus) }, "Non-critical update, skipping event emission");
+    }
   }
 
   protected isPushStatusCommand(data: PrintMessageCommand): data is PushStatusCommand {

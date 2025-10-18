@@ -82,7 +82,10 @@ export default class extends EventEmitter {
     logger.debug({ key, data: data[key] }, "Received message");
 
     if (this.isPrintMessage(data)) {
+      logger.debug({ command: data.print.command }, "Processing print message");
       this.printerStatus?.onUpdate(data.print);
+    } else {
+      logger.debug({ keys: Object.keys(data), hasprint: !!data.print }, "Message not recognized as print message");
     }
   }
 
