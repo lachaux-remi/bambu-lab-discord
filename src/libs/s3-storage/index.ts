@@ -64,7 +64,7 @@ export const uploadProjectImage = async (data: UploadProjectImage, attempt: numb
     .catch(() => null);
   if (!projectBuffer) {
     await setTimeout(1000);
-    return uploadProjectImage(data, attempt++);
+    return uploadProjectImage(data, attempt + 1);
   }
 
   // Find the plate image in the project 3mf file
@@ -93,7 +93,7 @@ export const uploadScreenshot = async (attempt: number = 0): Promise<string | nu
   const screenshotBuffer = await takeScreenshotBuffer();
   if (!screenshotBuffer) {
     await setTimeout(1000);
-    return uploadScreenshot(attempt++);
+    return uploadScreenshot(attempt + 1);
   }
 
   return await upload(`screenshot/${new Date().getTime()}.jpeg`, screenshotBuffer, ContentType.IMAGE_JPEG);
