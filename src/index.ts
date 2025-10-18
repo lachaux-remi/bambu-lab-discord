@@ -3,6 +3,7 @@ import { PrintState } from "./enums";
 import { sendWebhookMessage } from "./libs/discord";
 import { getLogger } from "./libs/logger";
 import BambuLabClient from "./services/bambu-lab";
+import { printCancelled } from "./services/messages/print-cancelled";
 import { printFailed } from "./services/messages/print-failed";
 import { printFinished } from "./services/messages/print-finished";
 import { printPaused } from "./services/messages/print-paused";
@@ -20,6 +21,15 @@ let lastProgressPercent = 0;
 bambuLabClient.on("status", async (newStatus, oldStatus) => {
   oldStatus.state = oldStatus.state ?? PrintState.UNKNOWN;
 
+  logger.debug(
+    {
+      transition: `${oldStatus.state} → ${newStatus.state}`,
+      progress: newStatus.progressPercent,
+      project: newStatus.project
+    },
+    "State transition detected"
+  );
+
   if (
     [PrintState.PREPARE, PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(oldStatus.state) &&
     [PrintState.RUNNING].includes(newStatus.state)
@@ -32,8 +42,15 @@ bambuLabClient.on("status", async (newStatus, oldStatus) => {
     [PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(newStatus.state)
   ) {
     if (newStatus.state === PrintState.FINISH) {
-      logger.info("Print finished");
-      return await sendWebhookMessage(await printFinished(newStatus));
+      // Check if print was completed (100%) or cancelled (<100%)
+      const isCompleted = (newStatus.progressPercent ?? 0) === 100;
+      if (isCompleted) {
+        logger.info("Print finished successfully");
+        return await sendWebhookMessage(await printFinished(newStatus));
+      } else {
+        logger.info({ progress: newStatus.progressPercent }, "Print cancelled");
+        return await sendWebhookMessage(await printCancelled(newStatus));
+      }
     } else if (newStatus.state === PrintState.FAILED) {
       logger.info("Print failed");
       return await sendWebhookMessage(await printFailed(newStatus));
