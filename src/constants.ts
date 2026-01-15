@@ -23,3 +23,18 @@ export const NOTIFICATION_FOOTER_TEXT = process.env.NOTIFICATION_FOOTER_TEXT || 
 export const NOTIFICATION_FOOTER_ICON =
   process.env.NOTIFICATION_FOOTER_ICON || `${S3_ENDPOINT}/${S3_BUCKET}/webhook.png`;
 export const NOTIFICATION_COLOR = (process.env.NOTIFICATION_COLOR || "#24a543") as `#${string}`;
+
+// Discord Bot settings for thread-per-print feature
+export const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || "";
+export const DISCORD_PARENT_CHANNEL_ID = process.env.DISCORD_PARENT_CHANNEL_ID || "";
+
+// Canonical tags we want to ensure exist in the forum channel (name and emoji)
+export const FORUM_TAG_DEFINITIONS: { name: string; emoji: string; moderated?: boolean }[] = [
+  { name: "En cours", emoji: "⏳" },
+  { name: "Réussi", emoji: "✅" },
+  { name: "Échoué", emoji: "❌" },
+  { name: "En pause", emoji: "⏸️" },
+  { name: "Attention", emoji: "⚠️" },
+  { name: "Multicolore", emoji: "🌈" },
+  { name: "Monocolor", emoji: "🎨" }
+];

@@ -14,4 +14,5 @@ export interface Status {
   plate: StringNumber;
   trayColor: `#${string}`;
   trayType: string;
+  isMulticolor: boolean;
 }

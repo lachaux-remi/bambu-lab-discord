@@ -5,6 +5,7 @@ import type { PrintMessageCommand } from "../../types/printer-messages";
 import type { Status } from "../../types/printer-status";
 import type { ProjectFileCommand } from "../../types/project-file";
 import type { PushStatusCommand } from "../../types/push-status";
+import { isMulticolorPrint } from "../../utils/print.util";
 import BambuLabClient from "../bambu-lab";
 
 const logger = getLogger("PrinterStatus");
@@ -33,6 +34,12 @@ export default class {
 
       if (data.plate_idx) {
         newStatus.plate = data.plate_idx;
+      }
+
+      // Détecter si l'impression est multicolore
+      if (data.ams_mapping) {
+        newStatus.isMulticolor = isMulticolorPrint(data.ams_mapping);
+        logger.debug({ amsMapping: data.ams_mapping, isMulticolor: newStatus.isMulticolor }, "Multicolor detection");
       }
 
       if (data.url && data.url.startsWith("https://") && data.model_id && data.subtask_name && data.plate_idx) {
