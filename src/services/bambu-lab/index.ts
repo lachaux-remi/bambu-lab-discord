@@ -15,7 +15,7 @@ import PrinterStatus from "../printer-status";
 
 const logger = getLogger("BambuLab");
 
-export default class extends EventEmitter {
+export default class BambuLabClient extends EventEmitter {
   private mqttClient?: MqttClient;
   private printerStatus?: PrinterStatus;
 
@@ -76,7 +76,14 @@ export default class extends EventEmitter {
   }
 
   protected async onMessage(packet: string): Promise<void> {
-    const data = JSON.parse(packet);
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(packet);
+    } catch (error) {
+      logger.error({ error, packetLength: packet.length }, "Failed to parse MQTT message");
+      return;
+    }
+
     const key = Object.keys(data)[0];
 
     logger.debug({ key, data: data[key] }, "Received message");

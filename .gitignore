@@ -213,3 +213,7 @@ dist
 FIXES.md
 nul
 pnpm-workspace.yaml
+
+# Debug logs
+mqtt-debug-*.log
+

@@ -3,6 +3,7 @@ import AWS from "aws-sdk";
 import { setTimeout } from "timers/promises";
 
 import {
+  MAX_UPLOAD_RETRIES,
   S3_ACCESS_KEY_ID,
   S3_BUCKET,
   S3_ENDPOINT,
@@ -11,11 +12,9 @@ import {
   S3_SIGNATURE_VERSION
 } from "../../constants";
 import { ContentType } from "../../enums";
-import type { StringNumber } from "../../types/general";
+import type { UploadProjectImageData } from "../../types/s3-storage";
 import { getLogger } from "../logger";
 import { takeScreenshotBuffer } from "../rtc";
-
-type UploadProjectImage = { url: string; model: string; project: string; plate: StringNumber };
 
 const logger = getLogger("S3 Storage");
 const s3Storage = new AWS.S3({
@@ -51,7 +50,7 @@ const upload = async (key: string, body: Buffer, contentType: ContentType): Prom
  * @param {number} attempt The number of attempts.
  * @returns {Promise<void>}
  */
-export const uploadProjectImage = async (data: UploadProjectImage, attempt: number = 0): Promise<string | null> => {
+export const uploadProjectImage = async (data: UploadProjectImageData, attempt: number = 0): Promise<string | null> => {
   if (attempt > 5) {
     logger.error("Failed to upload project image after 5 attempts");
     return null;
@@ -85,8 +84,8 @@ export const uploadProjectImage = async (data: UploadProjectImage, attempt: numb
  * @returns { string | null } The URL of the screenshot.
  */
 export const uploadScreenshot = async (attempt: number = 0): Promise<string | null> => {
-  if (attempt > 5) {
-    logger.error("Failed to upload screenshot after 5 attempts");
+  if (attempt >= MAX_UPLOAD_RETRIES) {
+    logger.error({ maxRetries: MAX_UPLOAD_RETRIES }, "Failed to upload screenshot after max attempts");
     return null;
   }
 

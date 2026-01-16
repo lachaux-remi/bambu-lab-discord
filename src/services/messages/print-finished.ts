@@ -1,8 +1,6 @@
-import { EmbedBuilder } from "discord.js";
-
-import { NOTIFICATION_COLOR, NOTIFICATION_FOOTER_ICON, NOTIFICATION_FOOTER_TEXT } from "../../constants";
 import { uploadScreenshot } from "../../libs/s3-storage";
 import type { Status } from "../../types/printer-status";
+import { createBaseEmbed } from "../../utils/embed.util";
 import { formatMinuteToBestDisplay, timeDiffInMinutes } from "../../utils/time.util";
 
 export const printFinished = async (status: Status) => {
@@ -12,15 +10,9 @@ export const printFinished = async (status: Status) => {
     time = ` en ${formatMinuteToBestDisplay(timeDiff)}`;
   }
 
-  return new EmbedBuilder()
+  return createBaseEmbed()
     .setTitle("Impression terminée")
     .setDescription(`L'imprimante a fini d'imprimer${time}.`)
-    .setColor(NOTIFICATION_COLOR)
-    .setFooter({
-      text: NOTIFICATION_FOOTER_TEXT,
-      iconURL: NOTIFICATION_FOOTER_ICON
-    })
-    .setTimestamp(new Date())
     .setThumbnail(status.projectImageUrl)
     .setImage(await uploadScreenshot());
 };

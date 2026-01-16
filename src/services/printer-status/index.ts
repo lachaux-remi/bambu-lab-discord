@@ -10,7 +10,7 @@ import BambuLabClient from "../bambu-lab";
 
 const logger = getLogger("PrinterStatus");
 
-export default class {
+export default class PrinterStatus {
   private latestStatus: Status = {} as Status;
 
   public constructor(private client: BambuLabClient) {}

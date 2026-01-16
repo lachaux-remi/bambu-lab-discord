@@ -1,17 +1,9 @@
-import { EmbedBuilder } from "discord.js";
-
-import { NOTIFICATION_COLOR, NOTIFICATION_FOOTER_ICON, NOTIFICATION_FOOTER_TEXT } from "../../constants";
 import type { Status } from "../../types/printer-status";
+import { createBaseEmbed } from "../../utils/embed.util";
 
 export const printStarted = async (status: Status) => {
-  return new EmbedBuilder()
+  return createBaseEmbed()
     .setTitle("Démarrage de l'impression")
-    .setDescription(`L'imprimante ce prépare pour imprimer **${status.project}**\n${status.model}`)
-    .setColor(NOTIFICATION_COLOR)
-    .setFooter({
-      text: NOTIFICATION_FOOTER_TEXT,
-      iconURL: NOTIFICATION_FOOTER_ICON
-    })
-    .setTimestamp(new Date())
+    .setDescription(`L'imprimante se prépare pour imprimer **${status.project}**\n${status.model}`)
     .setImage(status.projectImageUrl);
 };

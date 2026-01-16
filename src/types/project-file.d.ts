@@ -1,4 +1,4 @@
-import { MessageCommand } from "../enums";
+import type { MessageCommand } from "../enums";
 import type { StringNumber } from "./general";
 import type { PrintMessageCommand } from "./printer-messages";
 

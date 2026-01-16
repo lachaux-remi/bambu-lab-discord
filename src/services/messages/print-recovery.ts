@@ -1,17 +1,9 @@
-import { EmbedBuilder } from "discord.js";
-
-import { NOTIFICATION_COLOR, NOTIFICATION_FOOTER_ICON, NOTIFICATION_FOOTER_TEXT } from "../../constants";
 import { uploadScreenshot } from "../../libs/s3-storage";
+import { createBaseEmbed } from "../../utils/embed.util";
 
 export const printRecovery = async () => {
-  return new EmbedBuilder()
+  return createBaseEmbed()
     .setTitle("Coupure de courant")
-    .setDescription(`L'imprimante est prète à reprendre l'impression.`)
-    .setColor(NOTIFICATION_COLOR)
-    .setFooter({
-      text: NOTIFICATION_FOOTER_TEXT,
-      iconURL: NOTIFICATION_FOOTER_ICON
-    })
-    .setTimestamp(new Date())
+    .setDescription(`L'imprimante est prête à reprendre l'impression.`)
     .setImage(await uploadScreenshot());
 };
