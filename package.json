@@ -39,7 +39,6 @@
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
-    "aws-sdk": "^2.1692.0",
     "discord.js": "^14.23.2",
     "mqtt": "^5.14.1",
     "pino": "^9.13.1"

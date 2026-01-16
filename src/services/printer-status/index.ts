@@ -1,6 +1,6 @@
 import { MessageCommand, PrintState } from "../../enums";
 import { getLogger } from "../../libs/logger";
-import { uploadProjectImage } from "../../libs/s3-storage";
+import { extractProjectImage } from "../../libs/project";
 import type { PrintMessageCommand } from "../../types/printer-messages";
 import type { Status } from "../../types/printer-status";
 import type { ProjectFileCommand } from "../../types/project-file";
@@ -42,11 +42,9 @@ export default class PrinterStatus {
         logger.debug({ amsMapping: data.ams_mapping, isMulticolor: newStatus.isMulticolor }, "Multicolor detection");
       }
 
-      if (data.url && data.url.startsWith("https://") && data.model_id && data.subtask_name && data.plate_idx) {
-        newStatus.projectImageUrl = await uploadProjectImage({
+      if (data.url && data.url.startsWith("https://") && data.plate_idx) {
+        newStatus.projectImage = await extractProjectImage({
           url: data.url,
-          model: data.model_id,
-          project: data.subtask_name,
           plate: data.plate_idx
         });
       }
@@ -108,7 +106,7 @@ export default class PrinterStatus {
       newStatus.progressPercent !== undefined ||
       newStatus.currentLayer !== undefined ||
       newStatus.project !== undefined ||
-      newStatus.projectImageUrl !== undefined;
+      newStatus.projectImage !== undefined;
 
     if (hasImportantChanges) {
       logger.debug(

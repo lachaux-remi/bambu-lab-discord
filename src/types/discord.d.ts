@@ -1,3 +1,5 @@
+import type { EmbedBuilder } from "discord.js";
+
 export interface ForumTagDefinition {
   name: string;
   emoji: string;
@@ -19,4 +21,10 @@ export interface DiscordFileAttachment {
   name: string;
   buffer?: Buffer;
   url?: string;
+}
+
+/** Result from embed builders with optional attachments */
+export interface EmbedResult {
+  embed: EmbedBuilder;
+  files?: DiscordFileAttachment[];
 }
