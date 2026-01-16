@@ -214,6 +214,10 @@ FIXES.md
 nul
 pnpm-workspace.yaml
 
-# Debug logs
-mqtt-debug-*.log
+# Debug logs and images
+*-debug-*.log
+*-debug-*.jpg
+
+# Printer configuration (contains sensitive data)
+config/
 

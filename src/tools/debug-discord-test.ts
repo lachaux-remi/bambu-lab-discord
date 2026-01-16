@@ -1,25 +1,39 @@
 import { EmbedBuilder } from "discord.js";
 
-import { createPrintThread, initDiscordClient, sendToThread, syncForumTags, updateThreadTags } from "../libs/discord";
 import { getLogger } from "../libs/logger";
+import {
+  createPrintThread,
+  ensureForumTags,
+  initDiscordClient,
+  sendToThread,
+  updateThreadTags
+} from "../services/discord";
 
 const logger = getLogger("DiscordTest");
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Forum channel ID for testing (set via env or hardcode for testing)
+const TEST_FORUM_CHANNEL_ID = process.env.TEST_FORUM_CHANNEL_ID;
+
+if (!TEST_FORUM_CHANNEL_ID) {
+  console.error("Missing TEST_FORUM_CHANNEL_ID environment variable");
+  process.exit(1);
+}
 
 (async () => {
   logger.info("Starting Discord debug test...");
   await initDiscordClient();
 
-  // Wait a little for the client to become ready and parent channel to be set
+  // Wait a little for the client to become ready
   logger.info("Waiting for client to initialize (3s)...");
   await wait(3000);
 
   try {
-    logger.info("Syncing forum tags (will create/remove tags as needed)...");
-    const syncResult = await syncForumTags();
+    logger.info("Syncing forum tags...");
+    const syncResult = await ensureForumTags(TEST_FORUM_CHANNEL_ID);
     logger.info({ syncResult }, "Sync result");
   } catch (err) {
-    logger.error({ err }, "syncForumTags failed");
+    logger.error({ err }, "ensureForumTags failed");
   }
 
   const testTitle = `Test print multicolore ${Date.now()}`;
@@ -29,10 +43,14 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
     .setTimestamp(new Date());
 
   logger.info("Creating thread/post with tags: En cours, Multicolore...");
-  const threadId = await createPrintThread(`debug-${Date.now()}`, testTitle, embed, undefined, [
-    "En cours",
-    "Multicolore"
-  ]);
+  const threadId = await createPrintThread(
+    `debug-${Date.now()}`,
+    testTitle,
+    embed,
+    undefined,
+    ["En cours", "Multicolore"],
+    TEST_FORUM_CHANNEL_ID
+  );
 
   if (!threadId) {
     logger.error("Échec de création du thread/post. Vérifie les logs et la configuration du bot.");

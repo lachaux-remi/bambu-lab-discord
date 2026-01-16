@@ -1,6 +1,6 @@
 import { EmbedBuilder } from "discord.js";
 
-import { NOTIFICATION_COLOR, NOTIFICATION_FOOTER_ICON, NOTIFICATION_FOOTER_TEXT } from "../constants";
+import { NOTIFICATION_COLOR, NOTIFICATION_FOOTER_ICON, NOTIFICATION_FOOTER_TEXT } from "../../../constants";
 
 /**
  * Crée un EmbedBuilder avec les paramètres de base communs à toutes les notifications
