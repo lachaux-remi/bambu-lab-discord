@@ -1,5 +1,5 @@
-import { PrintState } from "../enums";
-import type { StringNumber } from "./general";
+import type { PrintState } from "../enums";
+import type { HexColor, StringNumber } from "./general";
 
 export interface Status {
   state: PrintState;
@@ -12,7 +12,7 @@ export interface Status {
   project: string;
   projectImageUrl: string | null;
   plate: StringNumber;
-  trayColor: `#${string}`;
+  trayColor: HexColor;
   trayType: string;
   isMulticolor: boolean;
 }

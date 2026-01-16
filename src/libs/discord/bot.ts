@@ -10,6 +10,7 @@ import {
 } from "discord.js";
 
 import { DISCORD_BOT_TOKEN, DISCORD_PARENT_CHANNEL_ID, FORUM_TAG_DEFINITIONS } from "../../constants";
+import type { DiscordFileAttachment, ForumTagPayload } from "../../types/discord";
 import { getLogger } from "../logger";
 
 const logger = getLogger("DiscordBot");
@@ -33,13 +34,6 @@ const getTagIdsForNames = (forum: ForumChannel, names: string[]) => {
     }
   }
   return ids;
-};
-
-type ForumTagPayload = {
-  id?: string;
-  name: string;
-  moderated?: boolean;
-  emoji?: { id: string | null; name: string | null };
 };
 
 export const ensureForumTags = async (forum: ForumChannel) => {
@@ -169,7 +163,7 @@ export const createPrintThread = async (
   printKey: string,
   title: string,
   initialEmbed: EmbedBuilder,
-  files?: { name: string; buffer?: Buffer; url?: string }[],
+  files?: DiscordFileAttachment[],
   tags?: string[]
 ): Promise<string | null> => {
   if (!client || !parentChannel) {
@@ -225,7 +219,7 @@ export const createPrintThread = async (
 export const sendToThread = async (
   threadId: string,
   embed: EmbedBuilder,
-  files?: { name: string; buffer?: Buffer; url?: string }[]
+  files?: DiscordFileAttachment[]
 ): Promise<Message | null> => {
   if (!client) {
     logger.warn("Discord bot not initialized, cannot send to thread");

@@ -9,6 +9,8 @@
     "start": "node dist/index.js",
     "local": "tsx --env-file=.env src/index.ts",
     "local:watch": "nodemon",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
     "debug:mqtt": "tsx --env-file=.env src/tools/debug-mqtt.ts",
     "debug:discord-test": "tsx --env-file=.env src/tools/debug-discord-test.ts"
   },

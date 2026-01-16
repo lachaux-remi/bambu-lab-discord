@@ -1,4 +1,4 @@
-import { MessageCommand, PrintState } from "../enums";
+import type { MessageCommand, PrintState } from "../enums";
 import type { IntRange } from "./general";
 import type { PrintMessageCommand } from "./printer-messages";
 
