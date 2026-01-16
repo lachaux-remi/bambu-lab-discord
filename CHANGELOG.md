@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-01-16
+
+### Added
+- **Multi-imprimantes** : Support de plusieurs imprimantes Bambu Lab
+- **Multi-channels** : Chaque imprimante peut poster dans son propre forum channel
+- **Commandes slash Discord** : `/printer add|remove|list|edit|start|stop|status`
+- **Tags dynamiques** : Un tag est créé automatiquement pour chaque imprimante
+- **Service database** : Persistence des configurations dans `config/printers.json`
+- **PrinterManager** : Gestion centralisée de plusieurs instances BambuLabClient
+- **Script debug:rtc** : Outil pour tester les connexions RTC
+- Types `.d.ts` dédiés pour une meilleure organisation du code
+
+### Changed
+- **BREAKING** : Les variables d'environnement pour l'imprimante unique sont supprimées
+- **BREAKING** : Le mode webhook est supprimé, seul le mode bot est supporté
+- Architecture réorganisée : `services/discord/` contient le bot et les embeds
+- `BambuLabClient` accepte maintenant une `PrinterConfig` en paramètre
+- `takeScreenshotBuffer()` et `uploadScreenshot()` acceptent l'URL RTC en paramètre
+- Les embeds affichent maintenant le nom de l'imprimante dans le titre
+
+### Removed
+- Support webhook Discord (remplacé par le bot complet)
+- Variables d'environnement : `PRINTER_*`, `DISCORD_WEBHOOK_*`, `RTC_URL`, `DISCORD_PARENT_CHANNEL_ID`
+- Dossier `src/libs/discord/` (remplacé par `src/services/discord/`)
+- Dossier `src/services/messages/` (remplacé par `src/services/discord/embeds/`)
+
 ## [1.1.0] - 2025-10-18
 
 ### Added

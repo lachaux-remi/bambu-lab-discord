@@ -3,20 +3,32 @@
  * Utilisez ce script pour diagnostiquer les problèmes avec les événements MQTT.
  *
  * Usage: pnpm run debug:mqtt
+ *
+ * Requires environment variables:
+ * - PRINTER_ADDRESS: IP address of the printer
+ * - PRINTER_ACCESS_CODE: Access code of the printer
+ * - PRINTER_SERIAL_NUMBER: Serial number of the printer
+ * - PRINTER_PORT (optional): MQTT port (default: 8883)
  */
 import { appendFileSync, writeFileSync } from "fs";
 import { connect } from "mqtt";
 import { join } from "path";
 
-import {
-  BAMBULAB_BROKER_ADDRESS,
-  BAMBULAB_CLIENT_PASSWORD,
-  BAMBULAB_CLIENT_USERNAME,
-  BAMBULAB_PRINTER_SERIAL_NUMBER
-} from "../constants";
 import { getLogger } from "../libs/logger";
 
 const logger = getLogger("MQTT-Debug");
+
+// Configuration from environment variables
+const PRINTER_IP = process.env.PRINTER_ADDRESS!;
+const PRINTER_PORT = process.env.PRINTER_PORT || "8883";
+const PRINTER_ACCESS_CODE = process.env.PRINTER_ACCESS_CODE!;
+const PRINTER_SERIAL = process.env.PRINTER_SERIAL_NUMBER!;
+const BROKER_ADDRESS = `mqtts://${PRINTER_IP}:${PRINTER_PORT}`;
+
+if (!PRINTER_IP || !PRINTER_ACCESS_CODE || !PRINTER_SERIAL) {
+  logger.error("Missing required environment variables: PRINTER_ADDRESS, PRINTER_ACCESS_CODE, PRINTER_SERIAL_NUMBER");
+  process.exit(1);
+}
 
 // Créer un fichier de log avec timestamp
 const logFileName = join(process.cwd(), `mqtt-debug-${Date.now()}.log`);
@@ -30,15 +42,15 @@ const logToFile = (message: string) => {
   appendFileSync(logFileName, `${message}\n`);
 };
 
-const topicReport = `device/${BAMBULAB_PRINTER_SERIAL_NUMBER}/report`;
-const topicRequest = `device/${BAMBULAB_PRINTER_SERIAL_NUMBER}/request`;
+const topicReport = `device/${PRINTER_SERIAL}/report`;
+const topicRequest = `device/${PRINTER_SERIAL}/request`;
 
-logger.info(`Connecting to ${BAMBULAB_BROKER_ADDRESS}`);
-logger.info(`Serial: ${BAMBULAB_PRINTER_SERIAL_NUMBER}`);
+logger.info(`Connecting to ${BROKER_ADDRESS}`);
+logger.info(`Serial: ${PRINTER_SERIAL}`);
 
-const client = connect(BAMBULAB_BROKER_ADDRESS, {
-  username: BAMBULAB_CLIENT_USERNAME,
-  password: BAMBULAB_CLIENT_PASSWORD,
+const client = connect(BROKER_ADDRESS, {
+  username: "bblp",
+  password: PRINTER_ACCESS_CODE,
   reconnectPeriod: 1,
   rejectUnauthorized: false
 });

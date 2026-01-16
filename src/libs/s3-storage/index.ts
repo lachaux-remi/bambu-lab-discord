@@ -14,7 +14,7 @@ import {
 import { ContentType } from "../../enums";
 import type { UploadProjectImageData } from "../../types/s3-storage";
 import { getLogger } from "../logger";
-import { takeScreenshotBuffer } from "../rtc";
+import { takeScreenshot } from "../rtc";
 
 const logger = getLogger("S3 Storage");
 const s3Storage = new AWS.S3({
@@ -78,21 +78,23 @@ export const uploadProjectImage = async (data: UploadProjectImageData, attempt: 
 };
 
 /**
- * Uploads the screenshot from RTC to S3.
+ * Uploads a screenshot from printer camera to S3.
  *
- * @param {number} attempt The number of attempts.
- * @returns { string | null } The URL of the screenshot.
+ * @param ip The printer IP address
+ * @param accessCode The printer access code
+ * @param attempt The number of attempts
+ * @returns The URL of the uploaded screenshot or null
  */
-export const uploadScreenshot = async (attempt: number = 0): Promise<string | null> => {
+export const uploadScreenshot = async (ip: string, accessCode: string, attempt: number = 0): Promise<string | null> => {
   if (attempt >= MAX_UPLOAD_RETRIES) {
     logger.error({ maxRetries: MAX_UPLOAD_RETRIES }, "Failed to upload screenshot after max attempts");
     return null;
   }
 
-  const screenshotBuffer = await takeScreenshotBuffer();
+  const screenshotBuffer = await takeScreenshot(ip, accessCode);
   if (!screenshotBuffer) {
     await setTimeout(1000);
-    return uploadScreenshot(attempt + 1);
+    return uploadScreenshot(ip, accessCode, attempt + 1);
   }
 
   return await upload(`screenshot/${new Date().getTime()}.jpeg`, screenshotBuffer, ContentType.IMAGE_JPEG);

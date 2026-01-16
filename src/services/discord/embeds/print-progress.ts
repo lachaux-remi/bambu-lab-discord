@@ -1,9 +1,10 @@
-import { uploadScreenshot } from "../../libs/s3-storage";
-import type { Status } from "../../types/printer-status";
-import { createBaseEmbed } from "../../utils/embed.util";
-import { formatMinuteToBestDisplay, timeDiffInMinutes } from "../../utils/time.util";
+import { uploadScreenshot } from "../../../libs/s3-storage";
+import type { PrinterConnection } from "../../../types/printer-config";
+import type { Status } from "../../../types/printer-status";
+import { formatMinuteToBestDisplay, timeDiffInMinutes } from "../../../utils/time.util";
+import { createBaseEmbed } from "./base";
 
-export const printProgress = async (status: Status) => {
+export const printProgress = async (status: Status, printer: PrinterConnection) => {
   let time = "N/D";
   if (status.startedAt) {
     const timeDiff = timeDiffInMinutes(status.startedAt, new Date().getTime());
@@ -11,7 +12,7 @@ export const printProgress = async (status: Status) => {
   }
 
   return createBaseEmbed()
-    .setTitle("Progression de l'Impression")
+    .setTitle("Progression de l'impression")
     .setDescription(`L'imprimante a fait **${status.progressPercent}%** de l'impression.`)
     .addFields(
       { name: "Couche", value: `${status.currentLayer} / ${status.maxLayers}`, inline: true },
@@ -19,5 +20,5 @@ export const printProgress = async (status: Status) => {
       { name: "Temps restant", value: formatMinuteToBestDisplay(status.remainingTime), inline: true }
     )
     .setThumbnail(status.projectImageUrl)
-    .setImage(await uploadScreenshot());
+    .setImage(await uploadScreenshot(printer.ip, printer.accessCode));
 };

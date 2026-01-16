@@ -1,15 +1,10 @@
 import { MqttClient, connect } from "mqtt";
 import EventEmitter from "node:events";
 
-import {
-  BAMBULAB_BROKER_ADDRESS,
-  BAMBULAB_CLIENT_PASSWORD,
-  BAMBULAB_CLIENT_USERNAME,
-  BAMBULAB_PRINTER_SERIAL_NUMBER
-} from "../../constants";
 import { MessageCommand } from "../../enums";
 import { getLogger } from "../../libs/logger";
 import type { ClientEvents } from "../../types/client-events";
+import type { PrinterConfig } from "../../types/printer-config";
 import type { PrintMessage } from "../../types/printer-messages";
 import PrinterStatus from "../printer-status";
 
@@ -18,14 +13,42 @@ const logger = getLogger("BambuLab");
 export default class BambuLabClient extends EventEmitter {
   private mqttClient?: MqttClient;
   private printerStatus?: PrinterStatus;
+  private readonly config: PrinterConfig;
 
-  private readonly topicReport = `device/${BAMBULAB_PRINTER_SERIAL_NUMBER}/report`;
-  private readonly topicRequest = `device/${BAMBULAB_PRINTER_SERIAL_NUMBER}/request`;
+  private readonly topicReport: string;
+  private readonly topicRequest: string;
+  private readonly brokerAddress: string;
 
-  public constructor() {
+  public constructor(config: PrinterConfig) {
     super();
 
+    this.config = config;
+    this.topicReport = `device/${config.serial}/report`;
+    this.topicRequest = `device/${config.serial}/request`;
+    this.brokerAddress = `mqtts://${config.ip}:${config.port}`;
+
     this.printerStatus = new PrinterStatus(this);
+  }
+
+  /**
+   * Get the printer configuration
+   */
+  public getConfig(): PrinterConfig {
+    return this.config;
+  }
+
+  /**
+   * Get the printer ID
+   */
+  public getId(): string {
+    return this.config.id;
+  }
+
+  /**
+   * Get the printer name
+   */
+  public getName(): string {
+    return this.config.name;
   }
 
   public override on<K extends keyof ClientEvents>(event: K, listener: (...arguments_: ClientEvents[K]) => void): this {
@@ -35,15 +58,17 @@ export default class BambuLabClient extends EventEmitter {
 
   public connect(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.mqttClient = connect(BAMBULAB_BROKER_ADDRESS, {
-        username: BAMBULAB_CLIENT_USERNAME,
-        password: BAMBULAB_CLIENT_PASSWORD,
+      logger.info({ printer: this.config.name, ip: this.config.ip }, "Connecting to printer...");
+
+      this.mqttClient = connect(this.brokerAddress, {
+        username: "bblp",
+        password: this.config.accessCode,
         reconnectPeriod: 1,
         rejectUnauthorized: false
       });
 
       this.mqttClient.on("connect", () => {
-        logger.info("Connected to printer");
+        logger.info({ printer: this.config.name }, "Connected to printer");
 
         this.mqttClient?.subscribe(this.topicReport);
         this.mqttClient?.publish(
@@ -59,7 +84,7 @@ export default class BambuLabClient extends EventEmitter {
         resolve();
       });
       this.mqttClient.on("disconnect", packet => {
-        logger.debug({ reasonCode: packet.reasonCode }, "Disconnected from printer");
+        logger.debug({ printer: this.config.name, reasonCode: packet.reasonCode }, "Disconnected from printer");
       });
       this.mqttClient.on("message", (receivedTopic: string, payload: Buffer) => {
         if (receivedTopic !== this.topicReport) {
@@ -69,10 +94,22 @@ export default class BambuLabClient extends EventEmitter {
         this.onMessage(payload.toString()).catch(() => true);
       });
       this.mqttClient.on("error", error => {
-        logger.error({ message: error.message }, "Error connecting to BambuLab MQTT server");
+        logger.error({ printer: this.config.name, message: error.message }, "Error connecting to BambuLab MQTT server");
         reject(error);
       });
     });
+  }
+
+  public disconnect(): void {
+    if (this.mqttClient) {
+      logger.info({ printer: this.config.name }, "Disconnecting from printer");
+      this.mqttClient.end();
+      this.mqttClient = undefined;
+    }
+  }
+
+  public isConnected(): boolean {
+    return this.mqttClient?.connected ?? false;
   }
 
   protected async onMessage(packet: string): Promise<void> {

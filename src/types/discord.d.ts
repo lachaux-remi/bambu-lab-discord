@@ -1,7 +1,6 @@
 export interface ForumTagDefinition {
   name: string;
   emoji: string;
-  moderated?: boolean;
 }
 
 /** Payload for Discord forum tag API */
