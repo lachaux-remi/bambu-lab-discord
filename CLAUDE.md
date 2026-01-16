@@ -4,25 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Bambu Lab Discord is a Discord notification bot that monitors a Bambu Lab 3D printer via MQTT and sends real-time updates about print jobs to Discord. The bot supports two modes:
-1. **Webhook mode**: Simple notifications via Discord webhook
-2. **Bot mode** (recommended): Full-featured with forum threads per print job, automatic tag management
+Bambu Lab Discord is a Discord bot that monitors Bambu Lab 3D printers via MQTT and sends real-time updates about print
+jobs to Discord forum threads. It supports multiple printers, each with its own channel and automatic tag management.
 
-The bot connects to the printer's MQTT broker, processes print status messages, captures screenshots via RTC, and uploads media to S3-compatible storage.
+The bot connects to printers' MQTT brokers, processes print status messages, and captures screenshots using the native
+Bambu camera protocol. All images are attached directly to Discord messages (no external storage needed).
 
 ## Development Commands
 
 ### Build and Run
+
 - `pnpm run build` - Clean and compile TypeScript to dist/
 - `pnpm run start` - Run the compiled application from dist/
 - `pnpm run local` - Run directly with tsx and load .env file
 - `pnpm run local:watch` - Run with nodemon for auto-reload on file changes
 
 ### Debug Tools
+
 - `pnpm run debug:mqtt` - Debug MQTT messages from printer
 - `pnpm run debug:discord-test` - Test Discord notifications
+- `pnpm run debug:rtc` - Test screenshot capture from printer
 
 ### Linting
+
 - ESLint configuration: `eslint.config.mjs`
 - Prettier configuration: `.prettierrc`
 
@@ -32,11 +36,11 @@ The bot connects to the printer's MQTT broker, processes print status messages, 
 src/
 ├── index.ts              # Main application entry point
 ├── constants.ts          # Environment variables & configuration
-├── enums.ts              # MessageCommand, PrintState, ContentType enums
+├── enums.ts              # MessageCommand, PrintState enums
 ├── libs/                 # Reusable stateless library modules
 │   ├── logger/           # Pino-based logging
-│   ├── rtc/              # RTC screenshot capture
-│   └── s3-storage/       # S3 upload functions (project images, screenshots)
+│   ├── project/          # Project file handling (extract preview image)
+│   └── rtc/              # RTC screenshot capture (native Bambu protocol)
 ├── services/             # Stateful business logic services
 │   ├── bambu-lab/        # MQTT client (BambuLabClient class)
 │   ├── database/         # JSON file persistence for printer configs
@@ -65,14 +69,14 @@ src/
 │   ├── printer-messages.d.ts
 │   ├── printer-status.d.ts
 │   ├── project-file.d.ts
-│   ├── push-status.d.ts
-│   └── s3-storage.d.ts
+│   └── push-status.d.ts
 ├── utils/                # Utility functions
 │   ├── discord-tags.util.ts
 │   ├── print.util.ts
 │   └── time.util.ts
 └── tools/                # Debug/development tools
     ├── debug-mqtt.ts
+    ├── debug-rtc.ts
     └── debug-discord-test.ts
 ```
 
@@ -81,11 +85,13 @@ src/
 ### Core Components
 
 **PrinterManager** (`src/services/printer-manager/index.ts`)
+
 - Manages multiple BambuLabClient instances
 - Starts/stops printers based on configuration
 - Handles status changes and dispatches to Discord
 
 **BambuLabClient** (`src/services/bambu-lab/index.ts`)
+
 - EventEmitter-based MQTT client connecting to a Bambu Lab printer
 - Accepts PrinterConfig in constructor
 - Subscribes to `device/{SERIAL}/report` topic
@@ -93,6 +99,7 @@ src/
 - Emits `status` events with new and old status objects
 
 **PrinterStatus** (`src/services/printer-status/index.ts`)
+
 - State manager that processes MQTT messages and tracks printer state
 - Handles two message types:
   - `PROJECT_FILE`: New print job metadata (downloads and extracts plate image from 3mf file)
@@ -101,6 +108,7 @@ src/
 - Maintains cumulative status object and emits changes to BambuLabClient
 
 **Main Application** (`src/index.ts`)
+
 - State machine that listens for status events and triggers Discord notifications
 - Tracks `lastProgressPercent` to send notifications at configurable intervals
 - Manages thread creation and tag updates for forum mode
@@ -115,6 +123,7 @@ UNKNOWN (initial) → PREPARE (job loaded) → RUNNING (printing) → FINISH/FAI
 ```
 
 State transitions trigger specific Discord messages:
+
 - IDLE/FINISH/FAILED/PREPARE → RUNNING: `printStarted` (creates new thread)
 - RUNNING → FINISH (100%): `printFinished` (tags: Réussi)
 - RUNNING → FINISH (<100%): `printCancelled` (tags: Échoué)
@@ -128,10 +137,12 @@ State transitions trigger specific Discord messages:
 ### Discord Integration
 
 **Webhook Mode** (fallback):
+
 - Simple webhook notifications
 - No thread management
 
 **Bot Mode** (when `DISCORD_BOT_TOKEN` and `DISCORD_PARENT_CHANNEL_ID` are set):
+
 - Creates forum posts (threads) per print job
 - Auto-syncs forum tags on startup (`ensureForumTags`)
 - Updates thread tags based on print state
@@ -142,6 +153,7 @@ State transitions trigger specific Discord messages:
 ### Libraries
 
 **Discord** (`src/libs/discord/`)
+
 - `index.ts`: WebhookClient wrapper, exports bot functions
 - `bot.ts`: Full Discord.js client for thread/forum management
   - `initDiscordClient()`: Initialize bot and sync forum tags
@@ -152,6 +164,7 @@ State transitions trigger specific Discord messages:
   - `ensurePrinterTag()`: Create a tag for a printer in forum
 
 **RTC** (`src/libs/rtc/index.ts`)
+
 - Captures JPEG screenshots from printer's camera using native Bambu protocol
 - Direct TLS connection to printer on port 6000
 - No external service required (ffmpeg, go2rtc, etc.)
@@ -160,17 +173,20 @@ State transitions trigger specific Discord messages:
   - `takeScreenshotFromBambuStream(ip, accessCode)`: Low-level function for direct stream access
 - Authentication uses username "bblp" and printer's access code
 
-**S3 Storage** (`src/libs/s3-storage/index.ts`)
-- Two upload functions with retry logic (max 5 attempts):
-  1. `uploadProjectImage`: Downloads 3mf file from printer, extracts `Metadata/plate_{N}.png`, uploads to S3
-  2. `uploadScreenshot(ip, accessCode)`: Captures screenshot from printer, uploads timestamped JPEG
-- Uses AWS SDK v2 with S3-compatible endpoints
+**Project** (`src/libs/project/index.ts`)
+
+- Extracts project preview images from 3mf files
+- Function:
+  - `extractProjectImage(data)`: Downloads 3mf file, extracts `Metadata/plate_{N}.png` as Buffer
+- Used to display project thumbnail in Discord embeds
 
 **Logger** (`src/libs/logger/index.ts`)
+
 - Pino-based logger with component-specific namespaces
 - Debug mode controlled by `DEBUG=true` env var
 
 **Database** (`src/services/database/index.ts`)
+
 - JSON file persistence for printer configurations
 - Stored in `config/printers.json`
 - CRUD operations: `addPrinter`, `removePrinter`, `updatePrinter`, `getPrinter`, `getAllPrinters`
@@ -179,15 +195,15 @@ State transitions trigger specific Discord messages:
 
 The bot supports the following Discord slash commands:
 
-| Command | Description |
-|---------|-------------|
-| `/printer add <name> <ip> <serial> <access_code> <channel>` | Add a new printer |
-| `/printer remove <name>` | Remove a printer |
-| `/printer list` | List all configured printers |
-| `/printer edit <name> [options]` | Edit a printer's configuration |
-| `/printer start <name>` | Start a printer connection |
-| `/printer stop <name>` | Stop a printer connection |
-| `/printer status <name>` | Show printer status |
+| Command                                                     | Description                    |
+|-------------------------------------------------------------|--------------------------------|
+| `/printer add <name> <ip> <serial> <access_code> <channel>` | Add a new printer              |
+| `/printer remove <name>`                                    | Remove a printer               |
+| `/printer list`                                             | List all configured printers   |
+| `/printer edit <name> [options]`                            | Edit a printer's configuration |
+| `/printer start <name>`                                     | Start a printer connection     |
+| `/printer stop <name>`                                      | Stop a printer connection      |
+| `/printer status <name>`                                    | Show printer status            |
 
 ## Environment Variables
 
@@ -197,20 +213,10 @@ Required configuration in `.env`:
 # Discord bot token (required)
 DISCORD_BOT_TOKEN=<bot token>
 
-# S3-compatible storage
-AWS_ENDPOINT=<endpoint>
-AWS_ACCESS_KEY_ID=<key>
-AWS_SECRET_ACCESS_KEY=<secret>
-AWS_REGION=eu-west-3  # default
-AWS_BUCKET=bambu-lab-p1s  # default
-
 # Notification customization
 NOTIFICATION_PERCENT=5  # default
 NOTIFICATION_FOOTER_TEXT=Bambu Lab Discord  # default
-NOTIFICATION_FOOTER_ICON=<url>  # default uses S3
-
-# Debug mode
-DEBUG=true  # optional
+NOTIFICATION_FOOTER_ICON=<url>  # optional
 NOTIFICATION_COLOR=#24a543  # default
 
 # Debug logging
@@ -247,6 +253,7 @@ Printer configurations are stored in `config/printers.json` (gitignored for secu
 This file contains sensitive information like access codes.
 
 Example structure:
+
 ```json
 {
   "version": 1,
@@ -268,4 +275,5 @@ Example structure:
 ## Known Improvements To Consider
 
 1. **AWS SDK Migration**: Currently using AWS SDK v2 (`aws-sdk`), should migrate to v3 (`@aws-sdk/client-s3`)
-2. **Unused utilities in `print.util.ts`**: `isMulticolorPrintV2` and `getFilamentCount` are defined but not currently used
+2. **Unused utilities in `print.util.ts`**: `isMulticolorPrintV2` and `getFilamentCount` are defined but not currently
+   used

@@ -6,5 +6,6 @@ export interface PrintMessage {
 
 export interface PrintMessageCommand {
   command: MessageCommand;
+
   [key: string]: unknown;
 }

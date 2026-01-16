@@ -10,7 +10,8 @@ export interface Status {
   remainingTime: number;
   model: string;
   project: string;
-  projectImageUrl: string | null;
+  /** Buffer de l'image de prévisualisation du projet (extrait du fichier 3mf) */
+  projectImage: Buffer | null;
   plate: StringNumber;
   trayColor: HexColor;
   trayType: string;

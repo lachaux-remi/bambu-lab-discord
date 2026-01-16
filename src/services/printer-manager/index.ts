@@ -1,8 +1,7 @@
-import type { EmbedBuilder } from "discord.js";
-
 import { NOTIFICATION_PERCENT } from "../../constants";
 import { PrintState } from "../../enums";
 import { getLogger } from "../../libs/logger";
+import type { EmbedResult } from "../../types/discord";
 import type { PrinterConfig } from "../../types/printer-config";
 import type { Status } from "../../types/printer-status";
 import { getDiscordTagsForStatus, getInitialDiscordTags } from "../../utils/discord-tags.util";
@@ -194,10 +193,10 @@ class PrinterManager {
 
     const printKey = this.getPrintKey(config, newStatus);
 
-    const sendMessage = async (embed: EmbedBuilder): Promise<void> => {
+    const sendMessage = async (result: EmbedResult): Promise<void> => {
       const threadId = instance.printThreads.get(printKey);
       if (threadId) {
-        const sent = await sendToThread(threadId, embed);
+        const sent = await sendToThread(threadId, result.embed, result.files);
         if (sent) {
           return;
         }
@@ -220,12 +219,19 @@ class PrinterManager {
         return;
       }
 
-      const embed = printStarted(newStatus);
+      const result = printStarted(newStatus);
       const title = newStatus.project ?? "Impression";
       const tags = [...getInitialDiscordTags(newStatus.isMulticolor ?? false), config.name];
 
       logger.info({ printKey, tags, printer: config.name }, "Creating new thread for print");
-      const threadId = await createPrintThread(printKey, title, embed, undefined, tags, config.forumChannelId);
+      const threadId = await createPrintThread(
+        printKey,
+        title,
+        result.embed,
+        result.files,
+        tags,
+        config.forumChannelId
+      );
 
       if (threadId) {
         instance.printThreads.set(printKey, threadId);
@@ -243,24 +249,24 @@ class PrinterManager {
         const isCompleted = (newStatus.progressPercent ?? 0) === 100;
         if (isCompleted) {
           logger.info({ printer: config.name }, "Print finished successfully");
-          const embed = await printFinished(newStatus, config);
-          await sendMessage(embed);
+          const result = await printFinished(newStatus, config);
+          await sendMessage(result);
           await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.FINISH);
         } else {
           logger.info({ printer: config.name, progress: newStatus.progressPercent }, "Print cancelled");
-          const embed = await printCancelled(newStatus, config);
-          await sendMessage(embed);
+          const result = await printCancelled(newStatus, config);
+          await sendMessage(result);
           await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.FAILED);
         }
       } else if (newStatus.state === PrintState.FAILED) {
         logger.info({ printer: config.name }, "Print failed");
-        const embed = await printFailed(newStatus, config);
-        await sendMessage(embed);
+        const result = await printFailed(newStatus, config);
+        await sendMessage(result);
         await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.FAILED);
       } else if (newStatus.state === PrintState.IDLE) {
         logger.info({ printer: config.name }, "Print stopped");
-        const embed = await printStopped(config);
-        await sendMessage(embed);
+        const result = await printStopped(config);
+        await sendMessage(result);
         await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.FAILED);
       }
 
@@ -274,8 +280,8 @@ class PrinterManager {
     // Print paused
     if ([PrintState.RUNNING].includes(oldStatus.state) && [PrintState.PAUSE].includes(newStatus.state)) {
       logger.info({ printer: config.name }, "Print paused");
-      const embed = await printPaused(config);
-      await sendMessage(embed);
+      const result = await printPaused(config);
+      await sendMessage(result);
       await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.PAUSE);
       return;
     }
@@ -283,8 +289,8 @@ class PrinterManager {
     // Print resumed
     if ([PrintState.PAUSE].includes(oldStatus.state) && [PrintState.RUNNING].includes(newStatus.state)) {
       logger.info({ printer: config.name }, "Print resumed");
-      const embed = await printResumed(config);
-      await sendMessage(embed);
+      const result = await printResumed(config);
+      await sendMessage(result);
       await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.RUNNING);
       return;
     }
@@ -293,8 +299,8 @@ class PrinterManager {
     if ([PrintState.UNKNOWN].includes(oldStatus.state) && [PrintState.PAUSE].includes(newStatus.state)) {
       logger.info({ printer: config.name }, "Print recovery");
       instance.lastProgressPercent = (newStatus.progressPercent % NOTIFICATION_PERCENT) * NOTIFICATION_PERCENT;
-      const embed = await printRecovery(config);
-      await sendMessage(embed);
+      const result = await printRecovery(config);
+      await sendMessage(result);
       return;
     }
 
@@ -327,8 +333,8 @@ class PrinterManager {
       newStatus.state === PrintState.RUNNING
     ) {
       instance.lastProgressPercent = progressPercent;
-      const embed = await printProgress(newStatus, config);
-      await sendMessage(embed);
+      const result = await printProgress(newStatus, config);
+      await sendMessage(result);
     }
   }
 }

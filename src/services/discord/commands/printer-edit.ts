@@ -2,7 +2,6 @@ import { ChannelType, ChatInputCommandInteraction } from "discord.js";
 
 import { getLogger } from "../../../libs/logger";
 import { getPrinter, updatePrinter } from "../../database";
-import { printerManager } from "../../printer-manager";
 import { ensurePrinterTag } from "../bot";
 
 const logger = getLogger("PrinterEdit");
@@ -24,7 +23,6 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   const serial = interaction.options.getString("serial");
   const accessCode = interaction.options.getString("access_code");
   const channel = interaction.options.getChannel("channel");
-  const enabled = interaction.options.getBoolean("enabled");
 
   // Vérifier si le channel est un forum
   if (channel && channel.type !== ChannelType.GuildForum) {
@@ -61,10 +59,6 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
     updates.forumChannelId = channel.id;
     changes.push(`Channel: <#${channel.id}>`);
   }
-  if (enabled !== null) {
-    updates.enabled = enabled;
-    changes.push(`Activée: ${enabled ? "Oui" : "Non"}`);
-  }
 
   if (changes.length === 0) {
     await interaction.editReply("⚠️ Aucune modification spécifiée");
@@ -84,12 +78,6 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   // Si le channel a changé, créer le tag dans le nouveau forum
   if (channel) {
     await ensurePrinterTag(channel.id, newName ?? printer.name);
-  }
-
-  // Si la config de connexion a changé, redémarrer l'imprimante
-  const needsRestart = ip || serial || accessCode;
-  if (needsRestart && printerManager.getPrinterStatus(printerId).running) {
-    await printerManager.restartPrinter(printerId);
   }
 
   await interaction.editReply(
