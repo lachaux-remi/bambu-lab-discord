@@ -3,6 +3,15 @@ import { WebhookClient } from "discord.js";
 
 import { DISCORD_WEBHOOK_NOTIFICATION_ID, DISCORD_WEBHOOK_NOTIFICATION_TOKEN } from "../../constants";
 import { getLogger } from "../logger";
+import {
+  archiveThread,
+  createPrintThread,
+  ensureForumTags,
+  initDiscordClient,
+  sendToThread,
+  syncForumTags,
+  updateThreadTags
+} from "./bot";
 
 const logger = getLogger("Discord");
 
@@ -22,4 +31,14 @@ export const sendWebhookMessage = async (embed: EmbedBuilder): Promise<APIMessag
       logger.error({ error }, "Failed to send webhook message");
       return null;
     });
+};
+
+export {
+  initDiscordClient,
+  createPrintThread,
+  sendToThread,
+  archiveThread,
+  ensureForumTags,
+  syncForumTags,
+  updateThreadTags
 };
