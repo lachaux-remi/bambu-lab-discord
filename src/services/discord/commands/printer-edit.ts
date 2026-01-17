@@ -23,6 +23,7 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   const serial = interaction.options.getString("serial");
   const accessCode = interaction.options.getString("access_code");
   const channel = interaction.options.getChannel("channel");
+  const rtcPort = interaction.options.getInteger("rtc_port");
 
   // Vérifier si le channel est un forum
   if (channel && channel.type !== ChannelType.GuildForum) {
@@ -58,6 +59,10 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   if (channel) {
     updates.forumChannelId = channel.id;
     changes.push(`Channel: <#${channel.id}>`);
+  }
+  if (rtcPort) {
+    updates.rtcPort = rtcPort;
+    changes.push(`Port RTC: ${printer.rtcPort} → ${rtcPort}`);
   }
 
   if (changes.length === 0) {

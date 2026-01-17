@@ -5,7 +5,7 @@
  * Usage: pnpm run debug:rtc
  *
  * Options via environment variables:
- * - PRINTER_ADDRESS + PRINTER_ACCESS_CODE: Test natif Bambu protocol
+ * - PRINTER_ADDRESS + PRINTER_ACCESS_CODE + PRINTER_RTC_PORT (optional, default 6000): Test natif Bambu protocol
  * - Or it will test all configured printers
  */
 import { writeFileSync } from "fs";
@@ -23,11 +23,11 @@ const saveScreenshot = (buffer: Buffer): string => {
   return filename;
 };
 
-const testNativeProtocol = async (ip: string, accessCode: string): Promise<boolean> => {
+const testNativeProtocol = async (ip: string, accessCode: string, port: number = 6000): Promise<boolean> => {
   const startTime = Date.now();
-  logger.info({ ip, mode: "Native-Bambu" }, "Testing native Bambu protocol...");
+  logger.info({ ip, port, mode: "Native-Bambu" }, "Testing native Bambu protocol...");
 
-  const buffer = await takeScreenshot(ip, accessCode);
+  const buffer = await takeScreenshot(ip, accessCode, port);
   const elapsed = Date.now() - startTime;
 
   if (buffer) {
@@ -45,9 +45,10 @@ const testNativeProtocol = async (ip: string, accessCode: string): Promise<boole
   // Option 1: Test from environment variables
   const printerIp = process.env.PRINTER_ADDRESS;
   const printerCode = process.env.PRINTER_ACCESS_CODE;
+  const printerRtcPort = parseInt(process.env.PRINTER_RTC_PORT ?? "6000", 10);
   if (printerIp && printerCode) {
     logger.info("Testing native Bambu protocol (direct connection to printer)...");
-    const success = await testNativeProtocol(printerIp, printerCode);
+    const success = await testNativeProtocol(printerIp, printerCode, printerRtcPort);
     process.exit(success ? 0 : 1);
   }
 
@@ -65,7 +66,7 @@ const testNativeProtocol = async (ip: string, accessCode: string): Promise<boole
   let failCount = 0;
 
   for (const printer of printers) {
-    const success = await testNativeProtocol(printer.ip, printer.accessCode);
+    const success = await testNativeProtocol(printer.ip, printer.accessCode, printer.rtcPort);
 
     if (success) {
       successCount++;

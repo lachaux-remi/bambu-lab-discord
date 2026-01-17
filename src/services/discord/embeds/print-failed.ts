@@ -1,11 +1,11 @@
 import { takeScreenshot } from "../../../libs/rtc";
 import type { EmbedResult } from "../../../types/discord";
-import type { PrinterConnection } from "../../../types/printer-config";
+import type { PrinterConfig } from "../../../types/printer-config";
 import type { Status } from "../../../types/printer-status";
 import { createBaseEmbed } from "./base";
 
-export const printFailed = async (status: Status, printer: PrinterConnection): Promise<EmbedResult> => {
-  const screenshot = await takeScreenshot(printer.ip, printer.accessCode);
+export const printFailed = async (status: Status, printer: PrinterConfig): Promise<EmbedResult> => {
+  const screenshot = await takeScreenshot(printer.ip, printer.accessCode, printer.rtcPort);
 
   const embed = createBaseEmbed()
     .setTitle("Impression échouée")

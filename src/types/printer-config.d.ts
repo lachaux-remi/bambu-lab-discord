@@ -1,14 +1,4 @@
 /**
- * Informations de connexion à une imprimante pour les captures d'écran
- */
-export interface PrinterConnection {
-  /** Adresse IP de l'imprimante */
-  ip: string;
-  /** Code d'accès de l'imprimante */
-  accessCode: string;
-}
-
-/**
  * Configuration d'une imprimante Bambu Lab
  */
 export interface PrinterConfig {
@@ -20,6 +10,8 @@ export interface PrinterConfig {
   ip: string;
   /** Port MQTT (défaut: 8883) */
   port: number;
+  /** Port RTC pour les captures d'écran (défaut: 6000) */
+  rtcPort: number;
   /** Numéro de série de l'imprimante */
   serial: string;
   /** Code d'accès de l'imprimante */

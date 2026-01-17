@@ -26,6 +26,9 @@ const commands = [
           opt.setName("channel").setDescription("Forum channel pour les notifications").setRequired(true)
         )
         .addIntegerOption(opt => opt.setName("port").setDescription("Port MQTT (défaut: 8883)").setRequired(false))
+        .addIntegerOption(opt =>
+          opt.setName("rtc_port").setDescription("Port RTC pour les captures d'écran (défaut: 6000)").setRequired(false)
+        )
     )
     .addSubcommand(sub =>
       sub
@@ -48,6 +51,9 @@ const commands = [
         .addStringOption(opt => opt.setName("serial").setDescription("Nouveau numéro de série").setRequired(false))
         .addStringOption(opt => opt.setName("access_code").setDescription("Nouveau code d'accès").setRequired(false))
         .addChannelOption(opt => opt.setName("channel").setDescription("Nouveau forum channel").setRequired(false))
+        .addIntegerOption(opt =>
+          opt.setName("rtc_port").setDescription("Nouveau port RTC pour les captures d'écran").setRequired(false)
+        )
     )
 ].map(cmd => cmd.toJSON());
 

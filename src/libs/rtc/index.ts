@@ -41,14 +41,18 @@ const buildAuthPayload = (username: string, accessCode: string): Buffer => {
 
 /**
  * Capture a single frame from Bambu Lab camera stream
- * Uses the native protocol on port 6000
+ * Uses the native protocol on the specified port (default 6000)
  *
  * Note: This requires the printer to be awake and camera active.
  */
-export const takeScreenshotFromBambuStream = (ip: string, accessCode: string): Promise<Buffer | null> => {
+export const takeScreenshotFromBambuStream = (
+  ip: string,
+  accessCode: string,
+  port: number = 6000
+): Promise<Buffer | null> => {
   return new Promise(resolve => {
     const timeout = setTimeout(() => {
-      logger.debug({ ip, bufferSize: buffer.length }, "Bambu stream timeout");
+      logger.debug({ ip, port, bufferSize: buffer.length }, "Bambu stream timeout");
       socket?.destroy();
       resolve(null);
     }, 15000);
@@ -61,11 +65,11 @@ export const takeScreenshotFromBambuStream = (ip: string, accessCode: string): P
       socket = tls.connect(
         {
           host: ip,
-          port: 6000,
+          port: port,
           rejectUnauthorized: false
         },
         () => {
-          logger.debug({ ip }, "Connected to Bambu camera stream");
+          logger.debug({ ip, port }, "Connected to Bambu camera stream");
           const authPayload = buildAuthPayload("bblp", accessCode);
           socket?.write(authPayload);
         }
@@ -115,8 +119,9 @@ export const takeScreenshotFromBambuStream = (ip: string, accessCode: string): P
  *
  * @param ip The printer IP address
  * @param accessCode The printer access code
+ * @param port The RTC port (default: 6000)
  * @returns Buffer containing the screenshot or null on failure
  */
-export const takeScreenshot = async (ip: string, accessCode: string): Promise<Buffer | null> => {
-  return takeScreenshotFromBambuStream(ip, accessCode);
+export const takeScreenshot = async (ip: string, accessCode: string, port: number = 6000): Promise<Buffer | null> => {
+  return takeScreenshotFromBambuStream(ip, accessCode, port);
 };
