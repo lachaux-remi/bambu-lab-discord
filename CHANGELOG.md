@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2026-01-17
+
+### Added
+
+- **Port RTC configurable** : Option `rtc_port` dans `/printer add` et `/printer edit` (défaut: 6000)
+- Support de la variable d'environnement `PRINTER_RTC_PORT` dans l'outil debug-rtc
+
+### Changed
+
+- Utilisation de `PrinterConfig` partout (suppression du type `PrinterConnection` redondant)
+- Documentation mise à jour (README.md, CLAUDE.md)
+
+### Fixed
+
+- Message d'erreur de `/printer add` ne référence plus `/printer start` (commande supprimée)
+
 ## [2.0.0] - 2026-01-17
 
 ### Added
