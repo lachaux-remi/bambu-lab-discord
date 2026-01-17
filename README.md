@@ -28,7 +28,7 @@ Les notifications incluent des captures d'écran en temps réel et des images de
 
 ## Prérequis
 
-- Node.js 18+ et pnpm
+- Node.js 24+ et pnpm
 - Une ou plusieurs imprimantes Bambu Lab sur votre réseau local
 - Un bot Discord avec les permissions appropriées
 
