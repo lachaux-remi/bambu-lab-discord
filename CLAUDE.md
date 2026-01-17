@@ -166,11 +166,11 @@ State transitions trigger specific Discord messages:
 **RTC** (`src/libs/rtc/index.ts`)
 
 - Captures JPEG screenshots from printer's camera using native Bambu protocol
-- Direct TLS connection to printer on port 6000
+- Direct TLS connection to printer on configurable port (default 6000)
 - No external service required (ffmpeg, go2rtc, etc.)
 - Functions:
-  - `takeScreenshot(ip, accessCode)`: Captures a single JPEG frame from the printer
-  - `takeScreenshotFromBambuStream(ip, accessCode)`: Low-level function for direct stream access
+  - `takeScreenshot(ip, accessCode, port?)`: Captures a single JPEG frame from the printer
+  - `takeScreenshotFromBambuStream(ip, accessCode, port?)`: Low-level function for direct stream access
 - Authentication uses username "bblp" and printer's access code
 
 **Project** (`src/libs/project/index.ts`)
@@ -195,15 +195,12 @@ State transitions trigger specific Discord messages:
 
 The bot supports the following Discord slash commands:
 
-| Command                                                     | Description                    |
-|-------------------------------------------------------------|--------------------------------|
-| `/printer add <name> <ip> <serial> <access_code> <channel>` | Add a new printer              |
-| `/printer remove <name>`                                    | Remove a printer               |
-| `/printer list`                                             | List all configured printers   |
-| `/printer edit <name> [options]`                            | Edit a printer's configuration |
-| `/printer start <name>`                                     | Start a printer connection     |
-| `/printer stop <name>`                                      | Stop a printer connection      |
-| `/printer status <name>`                                    | Show printer status            |
+| Command                                                                        | Description                    |
+|--------------------------------------------------------------------------------|--------------------------------|
+| `/printer add <name> <ip> <serial> <access_code> <channel> [port] [rtc_port]`  | Add a new printer              |
+| `/printer remove <name>`                                                       | Remove a printer               |
+| `/printer list`                                                                | List all configured printers   |
+| `/printer edit <name> [options] [rtc_port]`                                    | Edit a printer's configuration |
 
 ## Environment Variables
 

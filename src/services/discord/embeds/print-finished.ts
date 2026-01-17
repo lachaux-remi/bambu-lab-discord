@@ -1,18 +1,18 @@
 import { takeScreenshot } from "../../../libs/rtc";
 import type { DiscordFileAttachment, EmbedResult } from "../../../types/discord";
-import type { PrinterConnection } from "../../../types/printer-config";
+import type { PrinterConfig } from "../../../types/printer-config";
 import type { Status } from "../../../types/printer-status";
 import { formatMinuteToBestDisplay, timeDiffInMinutes } from "../../../utils/time.util";
 import { createBaseEmbed } from "./base";
 
-export const printFinished = async (status: Status, printer: PrinterConnection): Promise<EmbedResult> => {
+export const printFinished = async (status: Status, printer: PrinterConfig): Promise<EmbedResult> => {
   let time = "";
   if (status.startedAt) {
     const timeDiff = timeDiffInMinutes(status.startedAt, new Date().getTime());
     time = ` en ${formatMinuteToBestDisplay(timeDiff)}`;
   }
 
-  const screenshot = await takeScreenshot(printer.ip, printer.accessCode);
+  const screenshot = await takeScreenshot(printer.ip, printer.accessCode, printer.rtcPort);
   const files: DiscordFileAttachment[] = [];
 
   const embed = createBaseEmbed()

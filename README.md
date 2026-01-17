@@ -37,10 +37,10 @@ Les notifications incluent des captures d'écran en temps réel et des images de
 Si le bot n'est pas exécuté localement (ex: serveur distant, Docker sur un autre réseau), assurez-vous que les ports
 suivants sont accessibles vers vos imprimantes :
 
-| Port | Protocole | Utilisation                            |
-|------|-----------|----------------------------------------|
-| 8883 | TCP/TLS   | MQTT - Communication avec l'imprimante |
-| 6000 | TCP/TLS   | Caméra - Captures d'écran              |
+| Port | Protocole | Utilisation                                            |
+|------|-----------|--------------------------------------------------------|
+| 8883 | TCP/TLS   | MQTT - Communication avec l'imprimante (configurable)  |
+| 6000 | TCP/TLS   | Caméra - Captures d'écran (configurable via rtc_port)  |
 
 ## Installation
 

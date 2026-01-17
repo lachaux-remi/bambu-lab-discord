@@ -14,6 +14,7 @@ export const handlePrinterAdd = async (interaction: ChatInputCommandInteraction)
   const accessCode = interaction.options.getString("access_code", true);
   const channel = interaction.options.getChannel("channel", true);
   const port = interaction.options.getInteger("port") ?? 8883;
+  const rtcPort = interaction.options.getInteger("rtc_port") ?? 6000;
 
   // Vérifier que c'est un forum channel
   if (channel.type !== ChannelType.GuildForum) {
@@ -31,6 +32,7 @@ export const handlePrinterAdd = async (interaction: ChatInputCommandInteraction)
     name,
     ip,
     port,
+    rtcPort,
     serial,
     accessCode,
     forumChannelId: channel.id,
@@ -63,7 +65,7 @@ export const handlePrinterAdd = async (interaction: ChatInputCommandInteraction)
   } else {
     await interaction.editReply(
       `⚠️ Imprimante **${name}** ajoutée mais impossible de la démarrer\n` +
-        `Vérifiez la configuration et utilisez \`/printer start ${name}\``
+        `Vérifiez la configuration réseau et redémarrez le bot.`
     );
   }
 };
