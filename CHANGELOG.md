@@ -2,34 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
-
-## [2.0.0] - 2026-01-16
+## [2.0.0] - 2026-01-17
 
 ### Added
 
 - **Multi-imprimantes** : Support de plusieurs imprimantes Bambu Lab
 - **Multi-channels** : Chaque imprimante peut poster dans son propre forum channel
-- **Commandes slash Discord** : `/printer add|remove|list|edit|start|stop|status`
+- **Commandes slash Discord** : `/printer add|remove|list|edit`
 - **Tags dynamiques** : Un tag est créé automatiquement pour chaque imprimante
 - **Service database** : Persistence des configurations dans `config/printers.json`
 - **PrinterManager** : Gestion centralisée de plusieurs instances BambuLabClient
-- **Script debug:rtc** : Outil pour tester les connexions RTC
+- **Protocole natif Bambu** : Capture d'écran directe via TLS port 6000 (sans ffmpeg/go2rtc)
+- **Discord attachments** : Images envoyées directement comme pièces jointes (sans S3)
+- **Lib project** : Extraction des images de prévisualisation depuis les fichiers 3mf
+- **Type EmbedResult** : Embeds avec fichiers attachés intégrés
+- **Script debug:rtc** : Outil pour tester les connexions caméra
 - Types `.d.ts` dédiés pour une meilleure organisation du code
+- Documentation des ports réseau (8883, 6000) pour déploiements distants
 
 ### Changed
 
 - **BREAKING** : Les variables d'environnement pour l'imprimante unique sont supprimées
 - **BREAKING** : Le mode webhook est supprimé, seul le mode bot est supporté
+- **BREAKING** : Les variables S3 (AWS_*) ne sont plus nécessaires
+- **BREAKING** : Node.js 24+ requis
 - Architecture réorganisée : `services/discord/` contient le bot et les embeds
 - `BambuLabClient` accepte maintenant une `PrinterConfig` en paramètre
-- `takeScreenshotBuffer()` et `uploadScreenshot()` acceptent l'URL RTC en paramètre
-- Les embeds affichent maintenant le nom de l'imprimante dans le titre
+- Titres des embeds simplifiés (sans nom d'imprimante ni emoji, info dans le tag)
+- Titre des threads simplifié : juste le nom du projet
+- `projectImageUrl` remplacé par `projectImage` (Buffer)
 
 ### Removed
 
 - Support webhook Discord (remplacé par le bot complet)
-- Variables d'environnement : `PRINTER_*`, `DISCORD_WEBHOOK_*`, `RTC_URL`, `DISCORD_PARENT_CHANNEL_ID`
+- Dépendance `aws-sdk` et stockage S3
+- Lib `s3-storage` (remplacée par attachments Discord)
+- Commandes `/printer start|stop|status` et option `enabled`
+- Option `rtc_url` (protocole natif utilisé automatiquement)
+- Support HTTP/go2rtc pour les captures d'écran
+- Variables d'environnement : `PRINTER_*`, `DISCORD_WEBHOOK_*`, `RTC_URL`, `DISCORD_PARENT_CHANNEL_ID`, `AWS_*`
 - Dossier `src/libs/discord/` (remplacé par `src/services/discord/`)
 - Dossier `src/services/messages/` (remplacé par `src/services/discord/embeds/`)
 
