@@ -8,6 +8,9 @@ export const NOTIFICATION_FOOTER_TEXT = process.env.NOTIFICATION_FOOTER_TEXT || 
 export const NOTIFICATION_FOOTER_ICON = process.env.NOTIFICATION_FOOTER_ICON || "";
 export const NOTIFICATION_COLOR = (process.env.NOTIFICATION_COLOR || "#24a543") as `#${string}`;
 
+// MQTT error log cooldown in minutes (default: 5 minutes)
+export const ERROR_LOG_COOLDOWN_MS = parseInt(process.env.ERROR_LOG_COOLDOWN_MINUTES || "5", 10) * 60 * 1000;
+
 // Discord Bot token
 export const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || "";
 

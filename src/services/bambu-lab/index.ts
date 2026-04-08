@@ -1,6 +1,7 @@
 import { MqttClient, connect } from "mqtt";
 import EventEmitter from "node:events";
 
+import { ERROR_LOG_COOLDOWN_MS } from "../../constants";
 import { MessageCommand } from "../../enums";
 import { getLogger } from "../../libs/logger";
 import type { ClientEvents } from "../../types/client-events";
@@ -18,6 +19,8 @@ export default class BambuLabClient extends EventEmitter {
   private readonly topicReport: string;
   private readonly topicRequest: string;
   private readonly brokerAddress: string;
+
+  private lastMqttErrorLoggedAt?: number;
 
   public constructor(config: PrinterConfig) {
     super();
@@ -94,7 +97,14 @@ export default class BambuLabClient extends EventEmitter {
         this.onMessage(payload.toString()).catch(() => true);
       });
       this.mqttClient.on("error", error => {
-        logger.error({ printer: this.config.name, message: error.message }, "Error connecting to BambuLab MQTT server");
+        const now = Date.now();
+        if (!this.lastMqttErrorLoggedAt || now - this.lastMqttErrorLoggedAt >= ERROR_LOG_COOLDOWN_MS) {
+          logger.error(
+            { printer: this.config.name, message: error.message },
+            "Error connecting to BambuLab MQTT server"
+          );
+          this.lastMqttErrorLoggedAt = now;
+        }
         reject(error);
       });
     });

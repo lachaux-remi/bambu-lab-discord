@@ -149,7 +149,7 @@ class PrinterManager {
    */
   private getPrintKey(config: PrinterConfig, status: Status): string {
     const timestamp = status.startedAt ?? Date.now();
-    return `${config.id}:${status.model ?? "unknown"}:${status.project ?? "unknown"}:${timestamp}`;
+    return `${config.id}:${status.model ?? "unknown"}:${timestamp}`;
   }
 
   /**
