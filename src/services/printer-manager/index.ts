@@ -1,4 +1,4 @@
-import { NOTIFICATION_PERCENT } from "../../constants";
+import { CHAMBER_LIGHT_OFF_DELAY_MS, NOTIFICATION_PERCENT } from "../../constants";
 import { PrintState } from "../../enums";
 import { getLogger } from "../../libs/logger";
 import type { EmbedResult } from "../../types/discord";
@@ -27,6 +27,7 @@ interface PrinterInstance {
   config: PrinterConfig;
   lastProgressPercent: number;
   printThreads: Map<string, string>;
+  chamberLightTimer?: NodeJS.Timeout;
 }
 
 class PrinterManager {
@@ -99,6 +100,11 @@ class PrinterManager {
     if (!instance) {
       logger.warn({ printerId }, "Printer not running");
       return false;
+    }
+
+    if (instance.chamberLightTimer) {
+      clearTimeout(instance.chamberLightTimer);
+      instance.chamberLightTimer = undefined;
     }
 
     instance.client.disconnect();
@@ -213,6 +219,13 @@ class PrinterManager {
       instance.lastProgressPercent = 0;
       logger.info({ printer: config.name }, "Print started");
 
+      // Cancel pending chamber light timer if a new print starts
+      if (instance.chamberLightTimer) {
+        clearTimeout(instance.chamberLightTimer);
+        instance.chamberLightTimer = undefined;
+        logger.info({ printer: config.name }, "Chamber light timer cancelled (new print started)");
+      }
+
       const existingThreadId = instance.printThreads.get(printKey);
       if (existingThreadId) {
         logger.warn({ printKey, threadId: existingThreadId }, "Thread already exists for this print key");
@@ -249,23 +262,23 @@ class PrinterManager {
         const isCompleted = (newStatus.progressPercent ?? 0) === 100;
         if (isCompleted) {
           logger.info({ printer: config.name }, "Print finished successfully");
-          const result = await printFinished(newStatus, config);
+          const result = await printFinished(newStatus, () => instance.client.takeScreenshotWithLight());
           await sendMessage(result);
           await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.FINISH);
         } else {
           logger.info({ printer: config.name, progress: newStatus.progressPercent }, "Print cancelled");
-          const result = await printCancelled(newStatus, config);
+          const result = await printCancelled(newStatus, () => instance.client.takeScreenshotWithLight());
           await sendMessage(result);
           await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.FAILED);
         }
       } else if (newStatus.state === PrintState.FAILED) {
         logger.info({ printer: config.name }, "Print failed");
-        const result = await printFailed(newStatus, config);
+        const result = await printFailed(newStatus, () => instance.client.takeScreenshotWithLight());
         await sendMessage(result);
         await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.FAILED);
       } else if (newStatus.state === PrintState.IDLE) {
         logger.info({ printer: config.name }, "Print stopped");
-        const result = await printStopped(config);
+        const result = await printStopped(() => instance.client.takeScreenshotWithLight());
         await sendMessage(result);
         await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.FAILED);
       }
@@ -274,13 +287,24 @@ class PrinterManager {
         logger.debug({ printKey, printer: config.name }, "Removing print from active threads mapping");
         instance.printThreads.delete(printKey);
       }
+
+      // Schedule chamber light turn-off after delay if no new print starts
+      logger.info({ printer: config.name, delayMs: CHAMBER_LIGHT_OFF_DELAY_MS }, "Scheduling chamber light turn-off");
+      if (instance.chamberLightTimer) {
+        clearTimeout(instance.chamberLightTimer);
+      }
+      instance.chamberLightTimer = setTimeout(() => {
+        instance.chamberLightTimer = undefined;
+        instance.client.turnOffChamberLight();
+      }, CHAMBER_LIGHT_OFF_DELAY_MS);
+
       return;
     }
 
     // Print paused
     if ([PrintState.RUNNING].includes(oldStatus.state) && [PrintState.PAUSE].includes(newStatus.state)) {
       logger.info({ printer: config.name }, "Print paused");
-      const result = await printPaused(config);
+      const result = await printPaused(() => instance.client.takeScreenshotWithLight());
       await sendMessage(result);
       await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.PAUSE);
       return;
@@ -289,7 +313,7 @@ class PrinterManager {
     // Print resumed
     if ([PrintState.PAUSE].includes(oldStatus.state) && [PrintState.RUNNING].includes(newStatus.state)) {
       logger.info({ printer: config.name }, "Print resumed");
-      const result = await printResumed(config);
+      const result = await printResumed(() => instance.client.takeScreenshotWithLight());
       await sendMessage(result);
       await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.RUNNING);
       return;
@@ -299,7 +323,7 @@ class PrinterManager {
     if ([PrintState.UNKNOWN].includes(oldStatus.state) && [PrintState.PAUSE].includes(newStatus.state)) {
       logger.info({ printer: config.name }, "Print recovery");
       instance.lastProgressPercent = (newStatus.progressPercent % NOTIFICATION_PERCENT) * NOTIFICATION_PERCENT;
-      const result = await printRecovery(config);
+      const result = await printRecovery(() => instance.client.takeScreenshotWithLight());
       await sendMessage(result);
       return;
     }
@@ -333,7 +357,7 @@ class PrinterManager {
       newStatus.state === PrintState.RUNNING
     ) {
       instance.lastProgressPercent = progressPercent;
-      const result = await printProgress(newStatus, config);
+      const result = await printProgress(newStatus, () => instance.client.takeScreenshotWithLight());
       await sendMessage(result);
     }
   }

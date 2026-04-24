@@ -1,10 +1,8 @@
-import { takeScreenshot } from "../../../libs/rtc";
 import type { EmbedResult } from "../../../types/discord";
-import type { PrinterConfig } from "../../../types/printer-config";
 import { createBaseEmbed } from "./base";
 
-export const printPaused = async (printer: PrinterConfig): Promise<EmbedResult> => {
-  const screenshot = await takeScreenshot(printer.ip, printer.accessCode, printer.rtcPort);
+export const printPaused = async (screenshotFn: () => Promise<Buffer | null>): Promise<EmbedResult> => {
+  const screenshot = await screenshotFn();
 
   const embed = createBaseEmbed().setTitle("Impression en pause").setDescription(`L'imprimante a été mise en pause.`);
 
