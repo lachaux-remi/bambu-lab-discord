@@ -1,9 +1,10 @@
 import { MqttClient, connect } from "mqtt";
 import EventEmitter from "node:events";
 
-import { ERROR_LOG_COOLDOWN_MS } from "../../constants";
+import { CHAMBER_LIGHT_WARMUP_MS, ERROR_LOG_COOLDOWN_MS } from "../../constants";
 import { MessageCommand } from "../../enums";
 import { getLogger } from "../../libs/logger";
+import { takeScreenshot } from "../../libs/rtc";
 import type { ClientEvents } from "../../types/client-events";
 import type { PrinterConfig } from "../../types/printer-config";
 import type { PrintMessage } from "../../types/printer-messages";
@@ -21,6 +22,7 @@ export default class BambuLabClient extends EventEmitter {
   private readonly brokerAddress: string;
 
   private lastMqttErrorLoggedAt?: number;
+  private chamberLightOn: boolean = false;
 
   public constructor(config: PrinterConfig) {
     super();
@@ -118,6 +120,90 @@ export default class BambuLabClient extends EventEmitter {
     }
   }
 
+  /**
+   * Turn off the chamber light
+   */
+  public turnOffChamberLight(): void {
+    if (!this.mqttClient?.connected) {
+      logger.warn({ printer: this.config.name }, "Cannot turn off chamber light: not connected");
+      return;
+    }
+
+    logger.info({ printer: this.config.name }, "Turning off chamber light");
+    this.mqttClient.publish(
+      this.topicRequest,
+      JSON.stringify({
+        system: {
+          sequence_id: "0",
+          command: "ledctrl",
+          led_node: "chamber_light",
+          led_mode: "off",
+          led_on_time: 500,
+          led_off_time: 500,
+          loop_times: 1,
+          interval_time: 1000
+        }
+      })
+    );
+  }
+
+  /**
+   * Turn on the chamber light
+   */
+  public turnOnChamberLight(): void {
+    if (!this.mqttClient?.connected) {
+      logger.warn({ printer: this.config.name }, "Cannot turn on chamber light: not connected");
+      return;
+    }
+
+    logger.info({ printer: this.config.name }, "Turning on chamber light");
+    this.mqttClient.publish(
+      this.topicRequest,
+      JSON.stringify({
+        system: {
+          sequence_id: "0",
+          command: "ledctrl",
+          led_node: "chamber_light",
+          led_mode: "on",
+          led_on_time: 500,
+          led_off_time: 500,
+          loop_times: 1,
+          interval_time: 1000
+        }
+      })
+    );
+  }
+
+  /**
+   * Returns whether the chamber light is currently on
+   */
+  public isChamberLightOn(): boolean {
+    return this.chamberLightOn;
+  }
+
+  /**
+   * Capture a screenshot, turning on the chamber light beforehand if it is off.
+   * The light is turned off again after capture only if it was off before.
+   */
+  public async takeScreenshotWithLight(): Promise<Buffer | null> {
+    const wasLightOn = this.chamberLightOn;
+
+    if (!wasLightOn) {
+      logger.debug({ printer: this.config.name }, "Chamber light was off, turning on for screenshot");
+      this.turnOnChamberLight();
+      await new Promise(resolve => setTimeout(resolve, CHAMBER_LIGHT_WARMUP_MS));
+    }
+
+    const screenshot = await takeScreenshot(this.config.ip, this.config.accessCode, this.config.rtcPort);
+
+    if (!wasLightOn) {
+      logger.debug({ printer: this.config.name }, "Turning off chamber light after screenshot");
+      this.turnOffChamberLight();
+    }
+
+    return screenshot;
+  }
+
   public isConnected(): boolean {
     return this.mqttClient?.connected ?? false;
   }
@@ -134,6 +220,17 @@ export default class BambuLabClient extends EventEmitter {
     const key = Object.keys(data)[0];
 
     logger.debug({ key, data: data[key] }, "Received message");
+
+    // Track chamber light state from lights_report
+    const printData = data.print as Record<string, unknown> | undefined;
+    if (Array.isArray(printData?.lights_report)) {
+      const lightsReport = printData.lights_report as Array<{ node: string; mode: string }>;
+      const chamberLight = lightsReport.find(l => l.node === "chamber_light");
+      if (chamberLight) {
+        this.chamberLightOn = chamberLight.mode === "on";
+        logger.debug({ printer: this.config.name, chamberLightOn: this.chamberLightOn }, "Chamber light state updated");
+      }
+    }
 
     if (this.isPrintMessage(data)) {
       logger.debug({ command: data.print.command }, "Processing print message");

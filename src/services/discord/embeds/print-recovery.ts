@@ -1,10 +1,8 @@
-import { takeScreenshot } from "../../../libs/rtc";
 import type { EmbedResult } from "../../../types/discord";
-import type { PrinterConfig } from "../../../types/printer-config";
 import { createBaseEmbed } from "./base";
 
-export const printRecovery = async (printer: PrinterConfig): Promise<EmbedResult> => {
-  const screenshot = await takeScreenshot(printer.ip, printer.accessCode, printer.rtcPort);
+export const printRecovery = async (screenshotFn: () => Promise<Buffer | null>): Promise<EmbedResult> => {
+  const screenshot = await screenshotFn();
 
   const embed = createBaseEmbed()
     .setTitle("Récupération après coupure")
