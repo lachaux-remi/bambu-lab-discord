@@ -1,21 +1,14 @@
-ARG NODE_VERSION=24.13.0
-ARG PNPM_VERSION=10.28.0
+ARG NODE_VERSION=24.15.0
+ARG PNPM_VERSION=11.0.9
 
-FROM node:${NODE_VERSION}-alpine as base
+FROM node:${NODE_VERSION}-alpine AS base
 
 WORKDIR /usr/src/app
 
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g pnpm@${PNPM_VERSION}
 
-FROM base as deps
-
-RUN --mount=type=bind,source=package.json,target=package.json \
-    --mount=type=bind,source=pnpm-lock.yaml,target=pnpm-lock.yaml \
-    --mount=type=cache,target=/root/.local/share/pnpm/store \
-    pnpm install --prod --frozen-lockfile
-
-FROM deps as build
+FROM base AS build
 
 RUN --mount=type=bind,source=package.json,target=package.json \
     --mount=type=bind,source=pnpm-lock.yaml,target=pnpm-lock.yaml \
@@ -23,17 +16,16 @@ RUN --mount=type=bind,source=package.json,target=package.json \
     pnpm install --frozen-lockfile
 
 COPY . .
-RUN pnpm run build
+RUN pnpm run build && pnpm prune --prod
 
-FROM base as final
+FROM base AS final
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
 
 USER node
 
 COPY package.json .
-
-COPY --from=deps /usr/src/app/node_modules ./node_modules
+COPY --from=build /usr/src/app/node_modules ./node_modules
 COPY --from=build /usr/src/app/dist ./dist
 
 CMD pnpm start
