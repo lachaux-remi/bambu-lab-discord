@@ -35,9 +35,6 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.2"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
-  },
   "dependencies": {
     "adm-zip": "^0.5.17",
     "discord.js": "^14.26.4",
