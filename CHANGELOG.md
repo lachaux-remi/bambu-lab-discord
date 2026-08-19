@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.0](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.3.0...v2.4.0) (2026-08-19)
+
+
+### Features
+
+* add Discord camera test command ([#35](https://github.com/lachaux-remi/bambu-lab-discord/issues/35)) ([75987c1](https://github.com/lachaux-remi/bambu-lab-discord/commit/75987c198a40105c70d5dbf5fe3521cfa52994c6))
+
 ## [2.3.0](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.2.2...v2.3.0) (2026-08-19)
 
 
