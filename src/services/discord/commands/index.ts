@@ -63,14 +63,12 @@ const commands = [
  */
 export const registerCommands = async (): Promise<void> => {
   if (!DISCORD_BOT_TOKEN) {
-    logger.warn("No Discord token, skipping command registration");
-    return;
+    throw new Error("DISCORD_BOT_TOKEN is required to register commands");
   }
 
   const client = getDiscordClient();
   if (!client?.user) {
-    logger.warn("Discord client not ready, skipping command registration");
-    return;
+    throw new Error("Discord client is not ready to register commands");
   }
 
   const rest = new REST().setToken(DISCORD_BOT_TOKEN);
@@ -83,6 +81,7 @@ export const registerCommands = async (): Promise<void> => {
     logger.info("✅ Slash commands registered successfully");
   } catch (error) {
     logger.error({ error }, "Failed to register slash commands");
+    throw error;
   }
 };
 

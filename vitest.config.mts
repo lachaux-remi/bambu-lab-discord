@@ -5,6 +5,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: [
+        "src/application.ts",
         "src/libs/rtc/**/*.ts",
         "src/services/database/**/*.ts",
         "src/services/printer-status/**/*.ts",

@@ -55,11 +55,12 @@ class PrinterManager {
   /**
    * Arrête toutes les imprimantes
    */
-  public stopAll(): void {
+  public async stopAll(): Promise<void> {
     logger.info({ count: this.printers.size }, "Stopping all printers");
-
-    for (const [id] of this.printers) {
-      this.stopPrinter(id);
+    const results = await Promise.allSettled(Array.from(this.printers.keys(), id => this.stopPrinter(id)));
+    const errors = results.flatMap(result => (result.status === "rejected" ? [result.reason] : []));
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "Failed to stop all printers");
     }
   }
 
@@ -103,7 +104,7 @@ class PrinterManager {
   /**
    * Arrête une imprimante spécifique
    */
-  public stopPrinter(printerId: string): boolean {
+  public async stopPrinter(printerId: string): Promise<boolean> {
     const instance = this.printers.get(printerId);
     if (!instance) {
       logger.warn({ printerId }, "Printer not running");
@@ -115,8 +116,8 @@ class PrinterManager {
       instance.chamberLightTimer = undefined;
     }
 
-    instance.client.disconnect();
     this.printers.delete(printerId);
+    await instance.client.disconnect();
     logger.info({ printerId }, "Printer stopped");
     return true;
   }
@@ -125,7 +126,7 @@ class PrinterManager {
    * Redémarre une imprimante
    */
   public async restartPrinter(printerId: string): Promise<boolean> {
-    this.stopPrinter(printerId);
+    await this.stopPrinter(printerId);
     return await this.startPrinter(printerId);
   }
 

@@ -1,45 +1,55 @@
+import { Application } from "./application";
 import { getLogger } from "./libs/logger";
-import { initDiscordClient } from "./services/discord/bot";
+import { initDiscordClient, shutdownDiscordClient } from "./services/discord/bot";
 import { registerCommands, setupCommandHandlers } from "./services/discord/commands";
 import { printerManager } from "./services/printer-manager";
 
 const logger = getLogger("Application");
 
-const main = async () => {
+const application = new Application({
+  discord: {
+    start: async () => {
+      await initDiscordClient();
+      try {
+        await registerCommands();
+        setupCommandHandlers();
+      } catch (error) {
+        await shutdownDiscordClient();
+        throw error;
+      }
+    },
+    stop: shutdownDiscordClient
+  },
+  printers: {
+    start: () => printerManager.startAll(),
+    stop: () => printerManager.stopAll()
+  }
+});
+
+const main = async (): Promise<void> => {
   logger.info("🚀 Starting Bambu Lab Discord Bot...");
-
-  // Initialize Discord client
-  await initDiscordClient();
-
-  // Wait a bit for the client to be ready
-  await new Promise(resolve => setTimeout(resolve, 2000));
-
-  // Register slash commands
-  await registerCommands();
-
-  // Setup command handlers
-  setupCommandHandlers();
-
-  // Start all enabled printers
-  await printerManager.startAll();
-
+  await application.start();
   logger.info("✅ Bot started successfully");
-
-  // Graceful shutdown
-  process.on("SIGINT", () => {
-    logger.info("Shutting down...");
-    printerManager.stopAll();
-    process.exit(0);
-  });
-
-  process.on("SIGTERM", () => {
-    logger.info("Shutting down...");
-    printerManager.stopAll();
-    process.exit(0);
-  });
 };
 
-main().catch(error => {
+const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+  logger.info({ signal }, "Shutting down...");
+  try {
+    await application.stop();
+    logger.info("Shutdown complete");
+  } catch (error) {
+    logger.error({ error }, "Failed to shut down cleanly");
+    process.exitCode = 1;
+  }
+};
+
+process.once("SIGINT", () => void shutdown("SIGINT"));
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
+
+main().catch(async error => {
   logger.error({ error }, "Failed to start bot");
-  process.exit(1);
+  process.exitCode = 1;
+  await application.stop().catch(shutdownError => {
+    logger.error({ error: shutdownError }, "Failed to clean up after startup error");
+  });
 });
