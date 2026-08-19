@@ -23,10 +23,12 @@ FROM base AS final
 
 ENV NODE_ENV=production
 
+RUN mkdir -p config && chown node:node config
+
 USER node
 
-COPY package.json .
-COPY --from=build /usr/src/app/node_modules ./node_modules
-COPY --from=build /usr/src/app/dist ./dist
+COPY --chown=node:node package.json .
+COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules
+COPY --chown=node:node --from=build /usr/src/app/dist ./dist
 
 CMD ["node", "dist/index.js"]

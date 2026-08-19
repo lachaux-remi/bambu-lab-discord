@@ -170,18 +170,19 @@ progression, pause, reprise et fin réussie. Le MQTT sécurisé (`mqtts`) reste 
 
 ## Déploiement Docker
 
-```yaml
-# docker-compose.yml
-services:
-  bambu-discord:
-    build: .
-    restart: unless-stopped
-    env_file:
-      - .env
-    volumes:
-      - ./config:/app/config  # Persistence des configs imprimantes
-    network_mode: host  # Pour accéder aux imprimantes sur le réseau local
+Créez le fichier `.env` décrit plus haut, puis lancez le service fourni dans `compose.yaml` :
+
+```bash
+docker compose up -d --build
 ```
+
+Le conteneur s'exécute avec un utilisateur non-root et stocke `printers.json` ainsi que `active-threads.json` dans le
+volume Docker `printer-config`, monté dans `/usr/src/app/config`. Ce volume conserve la configuration lors des mises à
+jour ou recréations du conteneur. Le mode réseau `host` permet au bot d'accéder aux imprimantes présentes sur le réseau
+local et nécessite un hôte Linux.
+
+Ne supprimez pas le volume sans avoir sauvegardé la configuration. Si `CONFIG_ENCRYPTION_KEY` est définie, conservez
+également cette clé : les codes d'accès chiffrés ne peuvent pas être récupérés sans elle.
 
 ## Structure du projet
 

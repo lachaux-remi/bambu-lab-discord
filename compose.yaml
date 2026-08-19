@@ -2,5 +2,14 @@ services:
   server:
     build:
       context: .
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
+    volumes:
+      - printer-config:/usr/src/app/config
+    network_mode: host
+
+volumes:
+  printer-config:
