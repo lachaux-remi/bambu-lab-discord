@@ -28,7 +28,7 @@ Les notifications incluent des captures d'écran en temps réel et des images de
 
 ## Prérequis
 
-- Node.js 24+ et pnpm
+- Node.js 24.x et pnpm
 - Une ou plusieurs imprimantes Bambu Lab sur votre réseau local
 - Un bot Discord avec les permissions appropriées
 
@@ -47,7 +47,7 @@ suivants sont accessibles vers vos imprimantes :
 1. Clonez le dépôt :
 
 ```bash
-git clone https://github.com/votre-username/bambu-lab-discord.git
+git clone https://github.com/lachaux-remi/bambu-lab-discord.git
 cd bambu-lab-discord
 ```
 
@@ -70,7 +70,13 @@ CONFIG_ENCRYPTION_KEY=votre_cle_base64_de_32_octets
 # Personnalisation des notifications (optionnel)
 NOTIFICATION_PERCENT=5
 NOTIFICATION_FOOTER_TEXT=Bambu Lab Discord
+NOTIFICATION_FOOTER_ICON=
 NOTIFICATION_COLOR=#24a543
+
+# Délais opérationnels (optionnel)
+ERROR_LOG_COOLDOWN_MINUTES=5
+CHAMBER_LIGHT_OFF_DELAY_MINUTES=5
+CHAMBER_LIGHT_WARMUP_MS=1500
 
 # Mode debug (optionnel)
 DEBUG=false
@@ -143,9 +149,9 @@ pnpm run start
 ### Outils de debug :
 
 ```bash
-pnpm run debug:mqtt      # Tester la connexion MQTT
-pnpm run debug:discord   # Tester les notifications Discord
-pnpm run debug:rtc       # Tester les captures RTC
+pnpm run debug:mqtt           # Tester la connexion MQTT
+pnpm run debug:discord-test   # Tester les notifications Discord
+pnpm run debug:rtc            # Tester les captures RTC
 ```
 
 ### Émulateur MQTT pour le développement

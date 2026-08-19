@@ -1,6 +1,10 @@
 import AdmZip from "adm-zip";
+import type { LookupAddress, LookupOptions } from "node:dns";
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import type { IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { BlockList, isIP } from "node:net";
+import type { LookupFunction } from "node:net";
 import { setTimeout } from "timers/promises";
 
 import type { StringNumber } from "../../types/general";
@@ -15,95 +19,175 @@ const MAX_IMAGE_SIZE = 15 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-class UnsafeProjectUrlError extends Error {}
+class ProjectDownloadRejectedError extends Error {}
+
+const blockedIpv4Addresses = new BlockList();
+
+for (const [network, prefix] of [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.88.99.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4]
+] as const) {
+  blockedIpv4Addresses.addSubnet(network, prefix, "ipv4");
+}
+
+const blockedIpv6Addresses = new BlockList();
+
+for (const [network, prefix] of [
+  ["::", 96],
+  ["::1", 128],
+  ["::ffff:0:0", 96],
+  ["64:ff9b::", 96],
+  ["64:ff9b:1::", 48],
+  ["100::", 64],
+  ["2001::", 23],
+  ["2001:db8::", 32],
+  ["2002::", 16],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["fec0::", 10],
+  ["ff00::", 8]
+] as const) {
+  blockedIpv6Addresses.addSubnet(network, prefix, "ipv6");
+}
 
 const isPrivateIpAddress = (address: string): boolean => {
-  if (isIP(address) === 4) {
-    const [a, b] = address.split(".").map(Number);
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      a >= 224
-    );
+  const family = isIP(address);
+  if (family === 4) {
+    return blockedIpv4Addresses.check(address, "ipv4");
   }
-
-  const normalized = address.toLowerCase();
-  return (
-    normalized === "::" ||
-    normalized === "::1" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    /^fe[89ab]/.test(normalized) ||
-    normalized.startsWith("::ffff:")
-  );
+  return family !== 6 || blockedIpv6Addresses.check(address, "ipv6");
 };
 
-const validateProjectUrl = async (url: URL): Promise<void> => {
+const validateProjectUrl = async (url: URL): Promise<LookupAddress[]> => {
   if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443")) {
-    throw new UnsafeProjectUrlError("Project URL must use HTTPS without credentials or a custom port");
+    throw new ProjectDownloadRejectedError("Project URL must use HTTPS without credentials or a custom port");
   }
 
-  if (url.hostname === "localhost") {
-    throw new UnsafeProjectUrlError("Project URL cannot target localhost");
+  const hostname = url.hostname.replace(/^\[|\]$/g, "");
+  const hostnameWithoutTrailingDot = hostname.replace(/\.$/, "");
+  if (hostnameWithoutTrailingDot === "localhost" || hostnameWithoutTrailingDot.endsWith(".localhost")) {
+    throw new ProjectDownloadRejectedError("Project URL cannot target localhost");
   }
 
-  const addresses = await lookup(url.hostname, { all: true, verbatim: true });
+  const family = isIP(hostname);
+  const addresses = family ? [{ address: hostname, family }] : await lookup(hostname, { all: true, order: "verbatim" });
   if (addresses.length === 0 || addresses.some(({ address }) => isPrivateIpAddress(address))) {
-    throw new UnsafeProjectUrlError("Project URL resolved to a private or reserved address");
+    throw new ProjectDownloadRejectedError("Project URL resolved to a private or reserved address");
   }
+
+  return addresses;
 };
 
-const fetchProjectFile = async (initialUrl: string): Promise<Response> => {
-  let url = new URL(initialUrl);
+const requestedFamily = (family: LookupOptions["family"]): number => {
+  if (family === 4 || family === "IPv4") {
+    return 4;
+  }
+  if (family === 6 || family === "IPv6") {
+    return 6;
+  }
+  return 0;
+};
+
+const createPinnedLookup =
+  (addresses: LookupAddress[]): LookupFunction =>
+  (_hostname, options, callback) => {
+    const family = requestedFamily(options.family);
+    const matchingAddresses = family === 0 ? addresses : addresses.filter(address => address.family === family);
+
+    if (matchingAddresses.length === 0) {
+      const error = new Error("No validated address matches the requested IP family") as NodeJS.ErrnoException;
+      error.code = "ENOTFOUND";
+      callback(error, options.all ? [] : "", family);
+      return;
+    }
+
+    if (options.all) {
+      callback(null, matchingAddresses);
+      return;
+    }
+
+    const [address] = matchingAddresses;
+    callback(null, address.address, address.family);
+  };
+
+const requestProjectUrl = (url: URL, addresses: LookupAddress[]): Promise<IncomingMessage> =>
+  new Promise((resolve, reject) => {
+    const request = httpsRequest(
+      url,
+      {
+        agent: false,
+        lookup: createPinnedLookup(addresses),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+      },
+      resolve
+    );
+    request.once("error", reject);
+    request.end();
+  });
+
+const fetchProjectFile = async (initialUrl: string): Promise<IncomingMessage> => {
+  let url: URL;
+  try {
+    url = new URL(initialUrl);
+  } catch {
+    throw new ProjectDownloadRejectedError("Project URL is invalid");
+  }
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    await validateProjectUrl(url);
-    const response = await fetch(url, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-    });
+    const addresses = await validateProjectUrl(url);
+    const response = await requestProjectUrl(url, addresses);
 
-    if (![301, 302, 303, 307, 308].includes(response.status)) {
+    if (![301, 302, 303, 307, 308].includes(response.statusCode ?? 0)) {
       return response;
     }
 
-    const location = response.headers.get("location");
-    await response.body?.cancel();
+    const location = response.headers.location;
+    response.destroy();
     if (!location || redirectCount === MAX_REDIRECTS) {
-      throw new UnsafeProjectUrlError("Project URL exceeded the redirect limit");
+      throw new ProjectDownloadRejectedError("Project URL exceeded the redirect limit");
     }
 
-    url = new URL(location, url);
+    try {
+      url = new URL(location, url);
+    } catch {
+      throw new ProjectDownloadRejectedError("Project redirect URL is invalid");
+    }
   }
 
-  throw new UnsafeProjectUrlError("Project URL exceeded the redirect limit");
+  throw new ProjectDownloadRejectedError("Project URL exceeded the redirect limit");
 };
 
-const readProjectBody = async (response: Response): Promise<Buffer> => {
-  const contentLength = Number(response.headers.get("content-length"));
+const readProjectBody = async (response: IncomingMessage): Promise<Buffer> => {
+  const contentLengthHeader = response.headers["content-length"];
+  const contentLength = Number(Array.isArray(contentLengthHeader) ? contentLengthHeader[0] : contentLengthHeader);
   if (Number.isFinite(contentLength) && contentLength > MAX_PROJECT_SIZE) {
-    await response.body?.cancel();
-    throw new UnsafeProjectUrlError("Project file exceeds the maximum allowed size");
-  }
-
-  if (!response.body) {
-    throw new Error("Project response did not contain a body");
+    response.destroy();
+    throw new ProjectDownloadRejectedError("Project file exceeds the maximum allowed size");
   }
 
   const chunks: Buffer[] = [];
   let totalSize = 0;
-  for await (const chunk of response.body) {
-    totalSize += chunk.byteLength;
+  for await (const chunk of response) {
+    const bufferChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalSize += bufferChunk.byteLength;
     if (totalSize > MAX_PROJECT_SIZE) {
-      await response.body.cancel();
-      throw new UnsafeProjectUrlError("Project file exceeds the maximum allowed size");
+      response.destroy();
+      throw new ProjectDownloadRejectedError("Project file exceeds the maximum allowed size");
     }
-    chunks.push(Buffer.from(chunk));
+    chunks.push(bufferChunk);
   }
 
   return Buffer.concat(chunks, totalSize);
@@ -142,14 +226,15 @@ export const extractProjectImage = async (
 
   try {
     const response = await fetchProjectFile(url);
-    if (!response.ok) {
-      await response.body?.cancel();
-      if (response.status < 500 && ![408, 429].includes(response.status)) {
-        logger.warn({ status: response.status, url: logUrl }, "Project file request was rejected");
+    const status = response.statusCode ?? 0;
+    if (status < 200 || status >= 300) {
+      response.destroy();
+      if (status < 500 && ![408, 429].includes(status)) {
+        logger.warn({ status, url: logUrl }, "Project file request was rejected");
         return null;
       }
 
-      logger.warn({ status: response.status, url: logUrl }, "Failed to fetch project file, retrying...");
+      logger.warn({ status, url: logUrl }, "Failed to fetch project file, retrying...");
       await setTimeout(1000);
       return extractProjectImage(data, attempt + 1);
     }
@@ -180,12 +265,12 @@ export const extractProjectImage = async (
 
     return imageBuffer;
   } catch (error) {
-    if (error instanceof UnsafeProjectUrlError) {
-      logger.error({ error: error.message, url: logUrl }, "Unsafe project file request rejected");
+    if (error instanceof ProjectDownloadRejectedError) {
+      logger.error({ error, url: logUrl }, "Project file request rejected");
       return null;
     }
 
-    logger.warn({ error: (error as Error).message, url: logUrl }, "Error fetching project file, retrying...");
+    logger.warn({ error, url: logUrl }, "Error fetching project file, retrying...");
     await setTimeout(1000);
     return extractProjectImage(data, attempt + 1);
   }

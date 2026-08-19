@@ -6,6 +6,7 @@ export default defineConfig({
       provider: "v8",
       include: [
         "src/application.ts",
+        "src/libs/project/**/*.ts",
         "src/libs/rtc/**/*.ts",
         "src/services/bambu-lab/**/*.ts",
         "src/services/database/**/*.ts",
@@ -22,6 +23,7 @@ export default defineConfig({
         lines: 67.13,
         statements: 66.49,
         "src/application.ts": { branches: 100, functions: 100, lines: 100, statements: 100 },
+        "src/libs/project/**": { branches: 93.58, functions: 100, lines: 99.23, statements: 99.24 },
         "src/libs/rtc/**": { branches: 75, functions: 90.9, lines: 88.52, statements: 88.52 },
         "src/services/bambu-lab/**": { branches: 47.72, functions: 55.55, lines: 58.18, statements: 57.14 },
         "src/services/database/**": { branches: 71.59, functions: 100, lines: 85.78, statements: 85.85 },
