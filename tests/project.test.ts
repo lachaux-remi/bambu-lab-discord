@@ -257,6 +257,33 @@ describe("project image download", () => {
     );
   });
 
+  it("times out pending DNS lookups and bounds their retries without making an HTTPS request", async () => {
+    vi.useFakeTimers();
+    try {
+      lookupMock.mockImplementation(() => new Promise(() => {}));
+      const extraction = extract();
+      let settled = false;
+      void extraction.then(() => {
+        settled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(settled).toBe(false);
+      expect(lookupMock).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(false);
+      expect(lookupMock).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(extraction).resolves.toBeNull();
+      expect(lookupMock).toHaveBeenCalledTimes(5);
+      expect(requestMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("configures a timeout on each HTTPS request", async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     respondToRequests(() => response(404));

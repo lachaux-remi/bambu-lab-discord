@@ -5,7 +5,7 @@ import type { IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
 import type { LookupFunction } from "node:net";
-import { setTimeout } from "timers/promises";
+import { setTimeout as delay } from "timers/promises";
 
 import type { StringNumber } from "../../types/general";
 import { getLogger } from "../logger";
@@ -16,6 +16,7 @@ const MAX_RETRIES = 5;
 const MAX_REDIRECTS = 5;
 const MAX_PROJECT_SIZE = 100 * 1024 * 1024;
 const MAX_IMAGE_SIZE = 15 * 1024 * 1024;
+const DNS_LOOKUP_TIMEOUT_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -71,6 +72,23 @@ const isPrivateIpAddress = (address: string): boolean => {
   return family !== 6 || blockedIpv6Addresses.check(address, "ipv6");
 };
 
+/**
+ * Node 24 cannot cancel dns.lookup. This timeout only bounds the application wait; the underlying getaddrinfo work may
+ * continue in libuv's thread pool. Promise.race keeps observing that lookup, so a late rejection is still handled.
+ */
+const lookupProjectHostname = async (hostname: string): Promise<LookupAddress[]> => {
+  const { promise: timeoutPromise, reject: rejectTimeout } = Promise.withResolvers<never>();
+  const timeout = setTimeout(() => {
+    rejectTimeout(new Error(`DNS lookup timed out after ${DNS_LOOKUP_TIMEOUT_MS} ms`));
+  }, DNS_LOOKUP_TIMEOUT_MS);
+
+  try {
+    return await Promise.race([lookup(hostname, { all: true, order: "verbatim" }), timeoutPromise]);
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 const validateProjectUrl = async (url: URL): Promise<LookupAddress[]> => {
   if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443")) {
     throw new ProjectDownloadRejectedError("Project URL must use HTTPS without credentials or a custom port");
@@ -83,7 +101,7 @@ const validateProjectUrl = async (url: URL): Promise<LookupAddress[]> => {
   }
 
   const family = isIP(hostname);
-  const addresses = family ? [{ address: hostname, family }] : await lookup(hostname, { all: true, order: "verbatim" });
+  const addresses = family ? [{ address: hostname, family }] : await lookupProjectHostname(hostname);
   if (addresses.length === 0 || addresses.some(({ address }) => isPrivateIpAddress(address))) {
     throw new ProjectDownloadRejectedError("Project URL resolved to a private or reserved address");
   }
@@ -235,7 +253,7 @@ export const extractProjectImage = async (
       }
 
       logger.warn({ status, url: logUrl }, "Failed to fetch project file, retrying...");
-      await setTimeout(1000);
+      await delay(1000);
       return extractProjectImage(data, attempt + 1);
     }
 
@@ -271,7 +289,7 @@ export const extractProjectImage = async (
     }
 
     logger.warn({ error, url: logUrl }, "Error fetching project file, retrying...");
-    await setTimeout(1000);
+    await delay(1000);
     return extractProjectImage(data, attempt + 1);
   }
 };
