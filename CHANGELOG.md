@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.0](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.1.0...v2.2.0) (2026-08-19)
+
+### Features
+
+- Add MQTT printer emulator for development ([6c71985](https://github.com/lachaux-remi/bambu-lab-discord/commit/6c7198550adbabe2f5451a95576f2f4a14e2f276))
+- Harden printer monitoring and add automated tests ([f80b7c5](https://github.com/lachaux-remi/bambu-lab-discord/commit/f80b7c565307be6bb2b8100971ec958c0c7b9858))
+
+### Bug Fixes
+
+- Include pnpm workspace configuration in Docker builds ([638646b](https://github.com/lachaux-remi/bambu-lab-discord/commit/638646b4ba59c1263d996f07601c1a053925ba5a))
+- Persist Docker runtime configuration with non-root write access ([8052ee3](https://github.com/lachaux-remi/bambu-lab-discord/commit/8052ee375f394a1785fe5138017b589a0ccf0113))
+- Shut down Discord and MQTT services cleanly ([0fe4f0a](https://github.com/lachaux-remi/bambu-lab-discord/commit/0fe4f0af12e37bf2b94dc81d28914ede91923a69))
+- Encrypt printer access codes and migrate plaintext configuration automatically ([5f9de00](https://github.com/lachaux-remi/bambu-lab-discord/commit/5f9de00122c857339e2745a14beeba3380285d95))
+
 ## [2.1.0] - 2026-01-17
 
 ### Added
