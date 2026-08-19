@@ -11,9 +11,23 @@ import type { PrintMessage } from "../../types/printer-messages";
 import PrinterStatus from "../printer-status";
 
 const logger = getLogger("BambuLab");
+const configuredConnectTimeoutMs = Number(process.env.MQTT_CONNECT_TIMEOUT_MS);
+const MQTT_CONNECT_TIMEOUT_MS =
+  Number.isFinite(configuredConnectTimeoutMs) &&
+  configuredConnectTimeoutMs >= 1_000 &&
+  configuredConnectTimeoutMs <= 300_000
+    ? configuredConnectTimeoutMs
+    : 30_000;
+
+interface ConnectionAttempt {
+  promise: Promise<void>;
+  cancel: (error: Error) => Promise<void>;
+}
 
 export default class BambuLabClient extends EventEmitter {
   private mqttClient?: MqttClient;
+  private connectionAttempt?: ConnectionAttempt;
+  private disconnectPromise?: Promise<void>;
   private printerStatus?: PrinterStatus;
   private readonly config: PrinterConfig;
 
@@ -25,7 +39,10 @@ export default class BambuLabClient extends EventEmitter {
   private chamberLightOn: boolean = false;
   private messageQueue: Promise<void> = Promise.resolve();
 
-  public constructor(config: PrinterConfig) {
+  public constructor(
+    config: PrinterConfig,
+    private readonly connectTimeoutMs: number = MQTT_CONNECT_TIMEOUT_MS
+  ) {
     super();
 
     this.config = config;
@@ -69,39 +86,68 @@ export default class BambuLabClient extends EventEmitter {
   }
 
   public connect(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+    if (this.connectionAttempt) {
+      return this.connectionAttempt.promise;
+    }
+    if (this.mqttClient) {
+      return Promise.resolve();
+    }
+
+    let cancelConnection!: ConnectionAttempt["cancel"];
+    const promise = new Promise<void>((resolve, reject) => {
       logger.info({ printer: this.config.name, ip: this.config.ip }, "Connecting to printer...");
 
       const mqttClient = connect(this.brokerAddress, {
         username: "bblp",
         password: this.config.accessCode,
+        connectTimeout: this.connectTimeoutMs,
         reconnectPeriod: 5000,
         rejectUnauthorized: false
       });
       this.mqttClient = mqttClient;
-      let initialConnectionSettled = false;
+      let connectionState: "pending" | "connected" | "failed" = "pending";
+      const timeout = setTimeout(() => {
+        void failInitialConnection(new Error(`MQTT initial connection timed out after ${this.connectTimeoutMs}ms`));
+      }, this.connectTimeoutMs);
 
-      const failInitialConnection = (error: Error): void => {
-        if (initialConnectionSettled) {
+      const failInitialConnection = (error: Error): Promise<void> => {
+        if (connectionState === "connected") {
           logger.error({ printer: this.config.name, message: error.message }, "Failed to initialize MQTT session");
           mqttClient.reconnect();
-          return;
+          return Promise.resolve();
+        }
+        if (connectionState === "failed") {
+          return this.disconnectPromise ?? Promise.resolve();
         }
 
-        initialConnectionSettled = true;
-        mqttClient.end(true);
+        connectionState = "failed";
+        clearTimeout(timeout);
+        this.connectionAttempt = undefined;
         if (this.mqttClient === mqttClient) {
           this.mqttClient = undefined;
         }
+        try {
+          mqttClient.end(true);
+        } catch (shutdownError) {
+          logger.error({ printer: this.config.name, error: shutdownError }, "Failed to shut down MQTT transport");
+        }
         reject(error);
+        return Promise.resolve();
       };
+      cancelConnection = failInitialConnection;
 
       mqttClient.on("connect", () => {
+        if (connectionState === "failed") {
+          return;
+        }
         logger.info({ printer: this.config.name }, "Connected to printer");
 
         mqttClient.subscribe(this.topicReport, error => {
           if (error) {
-            failInitialConnection(error);
+            void failInitialConnection(error);
+            return;
+          }
+          if (connectionState === "failed") {
             return;
           }
 
@@ -116,12 +162,14 @@ export default class BambuLabClient extends EventEmitter {
             }),
             publishError => {
               if (publishError) {
-                failInitialConnection(publishError);
+                void failInitialConnection(publishError);
                 return;
               }
 
-              if (!initialConnectionSettled) {
-                initialConnectionSettled = true;
+              if (connectionState === "pending") {
+                connectionState = "connected";
+                clearTimeout(timeout);
+                this.connectionAttempt = undefined;
                 resolve();
               }
             }
@@ -152,22 +200,54 @@ export default class BambuLabClient extends EventEmitter {
           );
           this.lastMqttErrorLoggedAt = now;
         }
-        if (!initialConnectionSettled) {
-          failInitialConnection(error);
+        if (connectionState === "pending") {
+          void failInitialConnection(error);
         }
       });
     });
+
+    this.connectionAttempt = {
+      promise,
+      cancel: error => cancelConnection(error)
+    };
+    return promise;
   }
 
-  public async disconnect(): Promise<void> {
+  public disconnect(): Promise<void> {
+    if (this.disconnectPromise) {
+      return this.disconnectPromise;
+    }
+
+    const connectionAttempt = this.connectionAttempt;
+    if (connectionAttempt) {
+      return connectionAttempt.cancel(new Error("MQTT initial connection cancelled"));
+    }
+
     const mqttClient = this.mqttClient;
     if (!mqttClient) {
-      return;
+      return Promise.resolve();
     }
 
     logger.info({ printer: this.config.name }, "Disconnecting from printer");
-    this.mqttClient = undefined;
-    await mqttClient.endAsync();
+    return this.shutdownTransport(mqttClient, false);
+  }
+
+  private shutdownTransport(mqttClient: MqttClient, force: boolean): Promise<void> {
+    if (this.disconnectPromise) {
+      return this.disconnectPromise;
+    }
+    if (this.mqttClient === mqttClient) {
+      this.mqttClient = undefined;
+    }
+
+    const shutdown = mqttClient.endAsync(force);
+    const disconnectPromise = shutdown.finally(() => {
+      if (this.disconnectPromise === disconnectPromise) {
+        this.disconnectPromise = undefined;
+      }
+    });
+    this.disconnectPromise = disconnectPromise;
+    return disconnectPromise;
   }
 
   /**

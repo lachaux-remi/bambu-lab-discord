@@ -25,6 +25,7 @@ const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
 export interface ActivePrintThread {
   threadId: string;
   updatedAt: number;
+  project?: string;
 }
 
 type ActivePrintThreads = Record<string, ActivePrintThread>;
@@ -391,7 +392,12 @@ const loadActivePrintThreads = (): ActivePrintThreads => {
 
     const threads = value as ActivePrintThreads;
     for (const [printerId, thread] of Object.entries(threads)) {
-      if (!thread || typeof thread.threadId !== "string" || !Number.isFinite(thread.updatedAt)) {
+      if (
+        !thread ||
+        typeof thread.threadId !== "string" ||
+        !Number.isFinite(thread.updatedAt) ||
+        (thread.project !== undefined && typeof thread.project !== "string")
+      ) {
         throw new Error(`Invalid active thread state for printer ${printerId}`);
       }
     }
@@ -411,10 +417,10 @@ export const getActivePrintThread = (printerId: string): ActivePrintThread | nul
   return getActivePrintThreads()[printerId] ?? null;
 };
 
-export const setActivePrintThread = (printerId: string, threadId: string): boolean => {
+export const setActivePrintThread = (printerId: string, threadId: string, project?: string): boolean => {
   const updatedThreads = {
     ...getActivePrintThreads(),
-    [printerId]: { threadId, updatedAt: Date.now() }
+    [printerId]: { threadId, updatedAt: Date.now(), ...(project ? { project } : {}) }
   };
 
   try {

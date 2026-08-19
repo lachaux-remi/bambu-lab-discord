@@ -7,6 +7,7 @@ import type { Status } from "../../types/printer-status";
 import { getDiscordTagsForStatus, getInitialDiscordTags } from "../../utils/discord-tags.util";
 import BambuLabClient from "../bambu-lab";
 import {
+  type ActivePrintThread,
   getActivePrintThread,
   getEnabledPrinters,
   getPrinter,
@@ -33,12 +34,18 @@ interface PrinterInstance {
   config: PrinterConfig;
   lastProgressPercent: number;
   printThreads: Map<string, string>;
-  recoveredThreadId?: string;
+  recoveredThread?: ActivePrintThread;
   chamberLightTimer?: NodeJS.Timeout;
+}
+
+interface StartingPrinter {
+  instance: PrinterInstance;
+  promise: Promise<boolean>;
 }
 
 class PrinterManager {
   private printers: Map<string, PrinterInstance> = new Map();
+  private startingPrinters: Map<string, StartingPrinter> = new Map();
 
   /**
    * Démarre toutes les imprimantes activées
@@ -56,8 +63,9 @@ class PrinterManager {
    * Arrête toutes les imprimantes
    */
   public async stopAll(): Promise<void> {
-    logger.info({ count: this.printers.size }, "Stopping all printers");
-    const results = await Promise.allSettled(Array.from(this.printers.keys(), id => this.stopPrinter(id)));
+    const printerIds = new Set([...this.printers.keys(), ...this.startingPrinters.keys()]);
+    logger.info({ count: printerIds.size }, "Stopping all printers");
+    const results = await Promise.allSettled(Array.from(printerIds, id => this.stopPrinter(id)));
     const errors = results.flatMap(result => (result.status === "rejected" ? [result.reason] : []));
     if (errors.length > 0) {
       throw new AggregateError(errors, "Failed to stop all printers");
@@ -78,6 +86,11 @@ class PrinterManager {
       logger.warn({ printerId }, "Printer already running");
       return true;
     }
+    const startingPrinter = this.startingPrinters.get(printerId);
+    if (startingPrinter) {
+      logger.warn({ printerId }, "Printer already starting");
+      return await startingPrinter.promise;
+    }
 
     const client = new BambuLabClient(config);
     const instance: PrinterInstance = {
@@ -85,19 +98,42 @@ class PrinterManager {
       config,
       lastProgressPercent: 0,
       printThreads: new Map(),
-      recoveredThreadId: getActivePrintThread(printerId)?.threadId
+      recoveredThread: getActivePrintThread(printerId) ?? undefined
     };
 
     this.setupClientListeners(instance);
+    const promise = Promise.resolve().then(() => this.connectPrinter(printerId, instance));
+    this.startingPrinters.set(printerId, { instance, promise });
+    return await promise;
+  }
+
+  private async connectPrinter(printerId: string, instance: PrinterInstance): Promise<boolean> {
+    if (this.startingPrinters.get(printerId)?.instance !== instance) {
+      return false;
+    }
 
     try {
-      await client.connect();
+      await instance.client.connect();
+      if (this.startingPrinters.get(printerId)?.instance !== instance) {
+        await instance.client.disconnect();
+        return false;
+      }
+
       this.printers.set(printerId, instance);
-      logger.info({ printerId, name: config.name }, "Printer started");
+      logger.info({ printerId, name: instance.config.name }, "Printer started");
       return true;
     } catch (error) {
+      if (this.startingPrinters.get(printerId)?.instance === instance) {
+        await instance.client.disconnect().catch(disconnectError => {
+          logger.error({ printerId, error: disconnectError }, "Failed to clean up printer after start failure");
+        });
+      }
       logger.error({ printerId, error }, "Failed to start printer");
       return false;
+    } finally {
+      if (this.startingPrinters.get(printerId)?.instance === instance) {
+        this.startingPrinters.delete(printerId);
+      }
     }
   }
 
@@ -106,6 +142,15 @@ class PrinterManager {
    */
   public async stopPrinter(printerId: string): Promise<boolean> {
     const instance = this.printers.get(printerId);
+    const startingPrinter = this.startingPrinters.get(printerId);
+    if (startingPrinter) {
+      this.startingPrinters.delete(printerId);
+      await startingPrinter.instance.client.disconnect();
+      await startingPrinter.promise;
+      logger.info({ printerId }, "Printer start cancelled");
+      return true;
+    }
+
     if (!instance) {
       logger.warn({ printerId }, "Printer not running");
       return false;
@@ -186,8 +231,8 @@ class PrinterManager {
 
     if (threadId) {
       instance.printThreads.set(printKey, threadId);
-      instance.recoveredThreadId = undefined;
-      if (!setActivePrintThread(instance.config.id, threadId)) {
+      instance.recoveredThread = undefined;
+      if (!setActivePrintThread(instance.config.id, threadId, status.project || undefined)) {
         logger.warn({ printKey, threadId }, "Thread created but its recovery state could not be persisted");
       }
       logger.info({ printKey, threadId, printer: instance.config.name }, "Thread created and mapped");
@@ -241,7 +286,7 @@ class PrinterManager {
       oldStatus.state === PrintState.UNKNOWN &&
       [PrintState.PREPARE, PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(newStatus.state)
     ) {
-      instance.recoveredThreadId = undefined;
+      instance.recoveredThread = undefined;
       removeActivePrintThread(config.id);
     }
 
@@ -262,17 +307,28 @@ class PrinterManager {
       instance.lastProgressPercent =
         Math.trunc((newStatus.progressPercent ?? 0) / NOTIFICATION_PERCENT) * NOTIFICATION_PERCENT;
 
-      if (instance.recoveredThreadId) {
-        if (await isPrintThreadAvailable(instance.recoveredThreadId)) {
-          instance.printThreads.set(printKey, instance.recoveredThreadId);
+      if (instance.recoveredThread) {
+        const recoveredThread = instance.recoveredThread;
+        if (recoveredThread.project && newStatus.project && recoveredThread.project !== newStatus.project) {
           logger.info(
-            { printKey, threadId: instance.recoveredThreadId, printer: config.name },
+            {
+              printer: config.name,
+              persistedProject: recoveredThread.project,
+              currentProject: newStatus.project
+            },
+            "Persisted thread belongs to a different project"
+          );
+          removeActivePrintThread(config.id);
+        } else if (await isPrintThreadAvailable(recoveredThread.threadId)) {
+          instance.printThreads.set(printKey, recoveredThread.threadId);
+          logger.info(
+            { printKey, threadId: recoveredThread.threadId, printer: config.name },
             "Recovered active print thread"
           );
         } else {
           removeActivePrintThread(config.id);
         }
-        instance.recoveredThreadId = undefined;
+        instance.recoveredThread = undefined;
       }
 
       if (!instance.printThreads.has(printKey)) {
@@ -321,7 +377,7 @@ class PrinterManager {
 
     // Print finished/failed/stopped
     if (
-      [PrintState.RUNNING].includes(oldStatus.state) &&
+      [PrintState.RUNNING, PrintState.PAUSE].includes(oldStatus.state) &&
       [PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(newStatus.state)
     ) {
       if (newStatus.state === PrintState.FINISH) {

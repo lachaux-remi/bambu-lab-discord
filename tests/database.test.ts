@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -178,12 +178,33 @@ describe.sequential("configuration persistence", () => {
   });
 
   it("persists and removes active print thread recovery state", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000);
     const database = await import("../src/services/database");
 
-    expect(database.setActivePrintThread("printer", "thread-1")).toBe(true);
-    expect(database.getActivePrintThread("printer")?.threadId).toBe("thread-1");
+    expect(database.setActivePrintThread("printer", "thread-1", "Benchy")).toBe(true);
+    expect(database.getActivePrintThread("printer")).toEqual({
+      threadId: "thread-1",
+      updatedAt: 2_000,
+      project: "Benchy"
+    });
+    expect(JSON.parse(readFileSync(join(workingDirectory, "config", "active-threads.json"), "utf8"))).toEqual({
+      printer: { threadId: "thread-1", updatedAt: 2_000, project: "Benchy" }
+    });
     expect(database.removeActivePrintThread("printer")).toBe(true);
     expect(database.getActivePrintThread("printer")).toBeNull();
+  });
+
+  it("loads legacy active thread recovery state without a project", async () => {
+    mkdirSync(join(workingDirectory, "config"));
+    writeFileSync(
+      join(workingDirectory, "config", "active-threads.json"),
+      JSON.stringify({ printer: { threadId: "thread-legacy", updatedAt: 1_000 } }),
+      "utf8"
+    );
+    const database = await import("../src/services/database");
+
+    expect(database.getActivePrintThread("printer")).toEqual({ threadId: "thread-legacy", updatedAt: 1_000 });
   });
 
   it("reports persistence failures", async () => {
