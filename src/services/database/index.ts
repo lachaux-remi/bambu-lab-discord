@@ -10,7 +10,7 @@ import {
   writeFileSync
 } from "fs";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { join } from "path";
+import { dirname, join } from "path";
 
 import { getLogger } from "../../libs/logger";
 import type { BotConfig, PrinterConfig } from "../../types/printer-config";
@@ -22,10 +22,19 @@ const ACTIVE_THREADS_PATH = join(process.cwd(), "config", "active-threads.json")
 const CONFIG_VERSION = 1;
 const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
 
+export interface PrintIdentity {
+  subtaskId?: string;
+  taskId?: string;
+  gcodeFile?: string;
+  plate?: string;
+  project?: string;
+}
+
 export interface ActivePrintThread {
   threadId: string;
   updatedAt: number;
   project?: string;
+  identity?: PrintIdentity;
 }
 
 type ActivePrintThreads = Record<string, ActivePrintThread>;
@@ -144,8 +153,51 @@ function assertValidConfig(value: unknown): asserts value is BotConfig {
   }
 }
 
+const DIRECTORY_FSYNC_UNSUPPORTED_ERROR_CODES = new Set([
+  "EBADF",
+  "EINVAL",
+  "EISDIR",
+  "ENOTSUP",
+  "EOPNOTSUPP",
+  "EPERM"
+]);
+
+const isUnsupportedDirectoryFsyncError = (error: unknown): boolean => {
+  if (process.platform === "linux" || !(error instanceof Error)) {
+    return false;
+  }
+
+  return DIRECTORY_FSYNC_UNSUPPORTED_ERROR_CODES.has((error as NodeJS.ErrnoException).code ?? "");
+};
+
+const fsyncDirectory = (path: string): void => {
+  let directoryDescriptor: number | undefined;
+  let operationError: unknown;
+
+  try {
+    directoryDescriptor = openSync(path, "r");
+    fsyncSync(directoryDescriptor);
+  } catch (error) {
+    if (!isUnsupportedDirectoryFsyncError(error)) {
+      operationError = error;
+    }
+  }
+
+  if (directoryDescriptor !== undefined) {
+    try {
+      closeSync(directoryDescriptor);
+    } catch (error) {
+      operationError ??= error;
+    }
+  }
+
+  if (operationError !== undefined) {
+    throw operationError;
+  }
+};
+
 const writeJsonAtomic = (path: string, value: unknown): void => {
-  const dir = join(process.cwd(), "config");
+  const dir = dirname(path);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
@@ -156,15 +208,25 @@ const writeJsonAtomic = (path: string, value: unknown): void => {
     fileDescriptor = openSync(temporaryPath, "w", 0o600);
     writeFileSync(fileDescriptor, JSON.stringify(value, null, 2), "utf8");
     fsyncSync(fileDescriptor);
-    closeSync(fileDescriptor);
+    const synchronizedFileDescriptor = fileDescriptor;
     fileDescriptor = undefined;
+    closeSync(synchronizedFileDescriptor);
     renameSync(temporaryPath, path);
+    fsyncDirectory(dir);
   } catch (error) {
     if (fileDescriptor !== undefined) {
-      closeSync(fileDescriptor);
+      try {
+        closeSync(fileDescriptor);
+      } catch {
+        // Preserve the original write failure.
+      }
     }
-    if (existsSync(temporaryPath)) {
-      unlinkSync(temporaryPath);
+    try {
+      if (existsSync(temporaryPath)) {
+        unlinkSync(temporaryPath);
+      }
+    } catch {
+      // Preserve the original write failure.
     }
     throw error;
   }
@@ -379,6 +441,23 @@ export const reloadConfig = (): void => {
 
 let activePrintThreads: ActivePrintThreads | null = null;
 
+const isValidPrintIdentity = (value: unknown): value is PrintIdentity => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const identity = value as PrintIdentity;
+  const values = [identity.subtaskId, identity.taskId, identity.gcodeFile, identity.plate, identity.project];
+  if (
+    values.every(field => field === undefined) ||
+    values.some(field => field !== undefined && (typeof field !== "string" || field.trim() === ""))
+  ) {
+    return false;
+  }
+
+  return identity.subtaskId?.trim() !== "0" && identity.taskId?.trim() !== "0";
+};
+
 const loadActivePrintThreads = (): ActivePrintThreads => {
   if (!existsSync(ACTIVE_THREADS_PATH)) {
     return {};
@@ -396,7 +475,8 @@ const loadActivePrintThreads = (): ActivePrintThreads => {
         !thread ||
         typeof thread.threadId !== "string" ||
         !Number.isFinite(thread.updatedAt) ||
-        (thread.project !== undefined && typeof thread.project !== "string")
+        (thread.project !== undefined && typeof thread.project !== "string") ||
+        (thread.identity !== undefined && !isValidPrintIdentity(thread.identity))
       ) {
         throw new Error(`Invalid active thread state for printer ${printerId}`);
       }
@@ -417,10 +497,21 @@ export const getActivePrintThread = (printerId: string): ActivePrintThread | nul
   return getActivePrintThreads()[printerId] ?? null;
 };
 
-export const setActivePrintThread = (printerId: string, threadId: string, project?: string): boolean => {
+export const setActivePrintThread = (
+  printerId: string,
+  threadId: string,
+  identityOrProject?: PrintIdentity | string
+): boolean => {
+  const identity = typeof identityOrProject === "object" ? identityOrProject : undefined;
+  const project = typeof identityOrProject === "string" ? identityOrProject : identity?.project;
   const updatedThreads = {
     ...getActivePrintThreads(),
-    [printerId]: { threadId, updatedAt: Date.now(), ...(project ? { project } : {}) }
+    [printerId]: {
+      threadId,
+      updatedAt: Date.now(),
+      ...(project ? { project } : {}),
+      ...(identity ? { identity } : {})
+    }
   };
 
   try {

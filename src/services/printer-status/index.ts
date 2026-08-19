@@ -1,6 +1,7 @@
 import { MessageCommand, PrintState } from "../../enums";
 import { getLogger } from "../../libs/logger";
 import { extractProjectImage } from "../../libs/project";
+import type { StringNumber } from "../../types/general";
 import type { PrintMessageCommand } from "../../types/printer-messages";
 import type { Status } from "../../types/printer-status";
 import type { ProjectFileCommand } from "../../types/project-file";
@@ -9,6 +10,11 @@ import { isMulticolorPrint } from "../../utils/print.util";
 import BambuLabClient from "../bambu-lab";
 
 const logger = getLogger("PrinterStatus");
+
+const normalizePrintId = (value: string | number | undefined): string | undefined => {
+  const normalized = value === undefined ? "" : String(value).trim();
+  return normalized && normalized !== "0" ? normalized : undefined;
+};
 
 export default class PrinterStatus {
   private latestStatus: Status = {} as Status;
@@ -32,7 +38,11 @@ export default class PrinterStatus {
         newStatus.project = data.subtask_name;
       }
 
-      if (data.plate_idx) {
+      newStatus.subtaskId = normalizePrintId(data.subtask_id);
+      newStatus.taskId = normalizePrintId(data.task_id);
+      newStatus.gcodeFile = data.gcode_file?.trim() || undefined;
+
+      if (data.plate_idx !== undefined) {
         newStatus.plate = data.plate_idx;
       }
 
@@ -45,7 +55,7 @@ export default class PrinterStatus {
       if (data.url && data.url.startsWith("https://") && data.plate_idx) {
         newStatus.projectImage = await extractProjectImage({
           url: data.url,
-          plate: data.plate_idx
+          plate: String(data.plate_idx) as StringNumber
         });
       }
 
@@ -70,6 +80,22 @@ export default class PrinterStatus {
       // Mettre à jour tous les champs présents dans le message
       if (data.subtask_name) {
         newStatus.project = data.subtask_name;
+      }
+
+      if (data.subtask_id !== undefined) {
+        newStatus.subtaskId = normalizePrintId(data.subtask_id);
+      }
+
+      if (data.task_id !== undefined) {
+        newStatus.taskId = normalizePrintId(data.task_id);
+      }
+
+      if (data.gcode_file !== undefined) {
+        newStatus.gcodeFile = data.gcode_file.trim() || undefined;
+      }
+
+      if (data.plate_idx !== undefined) {
+        newStatus.plate = data.plate_idx;
       }
 
       if (data.gcode_state) {
@@ -112,7 +138,11 @@ export default class PrinterStatus {
       newStatus.progressPercent !== undefined ||
       newStatus.currentLayer !== undefined ||
       newStatus.project !== undefined ||
-      newStatus.projectImage !== undefined;
+      newStatus.projectImage !== undefined ||
+      newStatus.subtaskId !== undefined ||
+      newStatus.taskId !== undefined ||
+      newStatus.gcodeFile !== undefined ||
+      newStatus.plate !== undefined;
 
     if (hasImportantChanges) {
       logger.debug(

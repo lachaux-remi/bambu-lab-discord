@@ -107,7 +107,7 @@ const config: PrinterConfig = {
   updatedAt: 1
 };
 
-const status = (state: PrintState, progressPercent = 25): Status => ({
+const status = (state: PrintState, progressPercent = 25, overrides: Partial<Status> = {}): Status => ({
   state,
   currentLayer: 25,
   maxLayers: 100,
@@ -120,7 +120,8 @@ const status = (state: PrintState, progressPercent = 25): Status => ({
   plate: 1,
   trayColor: "#ffffff",
   trayType: "PLA",
-  isMulticolor: false
+  isMulticolor: false,
+  ...overrides
 });
 
 describe("PrinterManager public seam", () => {
@@ -207,8 +208,7 @@ describe("PrinterManager public seam", () => {
 
     await expect(stop).resolves.toBe(true);
     await expect(start).resolves.toBe(false);
-    expect(mocks.clients[0].connect).not.toHaveBeenCalled();
-    expect(mocks.clients[0].disconnect).toHaveBeenCalledOnce();
+    expect(mocks.Client).not.toHaveBeenCalled();
     expect(printerManager.getRunningPrinters()).toEqual([]);
   });
 
@@ -240,13 +240,76 @@ describe("PrinterManager public seam", () => {
 
     const restart = printerManager.restartPrinter(config.id);
     await Promise.resolve();
+    const concurrentStart = printerManager.startPrinter(config.id);
     expect(mocks.Client).toHaveBeenCalledOnce();
-    expect(printerManager.getPrinterStatus(config.id).running).toBe(false);
+    expect(printerManager.getPrinterStatus(config.id).running).toBe(true);
 
     finishDisconnect?.();
     await expect(restart).resolves.toBe(true);
+    await expect(concurrentStart).resolves.toBe(true);
     expect(mocks.Client).toHaveBeenCalledTimes(2);
     expect(mocks.clients[1].connect).toHaveBeenCalledOnce();
+  });
+
+  it("lets stop cancel a restart replacement without deadlocking the operation queue", async () => {
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+    let finishDisconnect: (() => void) | undefined;
+    mocks.clients[0].disconnect.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishDisconnect = resolve;
+        })
+    );
+
+    const restart = printerManager.restartPrinter(config.id);
+    await Promise.resolve();
+    const stop = printerManager.stopPrinter(config.id);
+    finishDisconnect?.();
+
+    await expect(restart).resolves.toBe(false);
+    await expect(stop).resolves.toBe(true);
+    expect(mocks.Client).toHaveBeenCalledOnce();
+    expect(printerManager.getRunningPrinters()).toEqual([]);
+  });
+
+  it("does not begin a new start until the previous stop has finished", async () => {
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+    let finishDisconnect: (() => void) | undefined;
+    mocks.clients[0].disconnect.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishDisconnect = resolve;
+        })
+    );
+
+    const stop = printerManager.stopPrinter(config.id);
+    await Promise.resolve();
+    const firstStart = printerManager.startPrinter(config.id);
+    const duplicateStart = printerManager.startPrinter(config.id);
+    await Promise.resolve();
+
+    expect(mocks.Client).toHaveBeenCalledOnce();
+    expect(mocks.clients[0].disconnect).toHaveBeenCalledOnce();
+    finishDisconnect?.();
+
+    await expect(stop).resolves.toBe(true);
+    await expect(Promise.all([firstStart, duplicateStart])).resolves.toEqual([true, true]);
+    expect(mocks.Client).toHaveBeenCalledTimes(2);
+    expect(mocks.clients[1].connect).toHaveBeenCalledOnce();
+  });
+
+  it("retains ownership after a failed stop without blocking later operations", async () => {
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+    mocks.clients[0].disconnect.mockRejectedValue(new Error("disconnect failed"));
+
+    await expect(printerManager.stopPrinter(config.id)).rejects.toThrow("disconnect failed");
+    await expect(printerManager.startPrinter(config.id)).resolves.toBe(true);
+
+    expect(mocks.Client).toHaveBeenCalledOnce();
+    expect(printerManager.getRunningPrinters()).toEqual([config.id]);
   });
 
   it("reports an unknown printer as already stopped", async () => {
@@ -280,7 +343,7 @@ describe("PrinterManager public seam", () => {
     expect(mocks.clients[1].disconnect).toHaveBeenCalledOnce();
     finishSecondDisconnect?.();
     await expect(shutdown).rejects.toThrow("Failed to stop all printers");
-    expect(printerManager.getRunningPrinters()).toEqual([]);
+    expect(printerManager.getRunningPrinters()).toEqual(["printer-1"]);
   });
 
   it("reattaches an available persisted thread and removes its recovery record when the print ends", async () => {
@@ -307,7 +370,7 @@ describe("PrinterManager public seam", () => {
 
     expect(mocks.removeActivePrintThread).toHaveBeenCalledWith(config.id);
     expect(mocks.createPrintThread).toHaveBeenCalledOnce();
-    expect(mocks.setActivePrintThread).toHaveBeenCalledWith(config.id, "thread-new", "Benchy");
+    expect(mocks.setActivePrintThread).toHaveBeenCalledWith(config.id, "thread-new", { project: "Benchy" });
   });
 
   it("replaces a persisted thread when both known project identities differ", async () => {
@@ -320,7 +383,139 @@ describe("PrinterManager public seam", () => {
     expect(mocks.isPrintThreadAvailable).not.toHaveBeenCalled();
     expect(mocks.removeActivePrintThread).toHaveBeenCalledWith(config.id);
     expect(mocks.createPrintThread).toHaveBeenCalledOnce();
-    expect(mocks.setActivePrintThread).toHaveBeenCalledWith(config.id, "thread-new", "Benchy");
+    expect(mocks.setActivePrintThread).toHaveBeenCalledWith(config.id, "thread-new", { project: "Benchy" });
+  });
+
+  it("persists cloud identity fields without using startedAt", async () => {
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+
+    await mocks.clients[0].emitStatus(
+      status(PrintState.RUNNING, 1, {
+        subtaskId: "subtask-1",
+        taskId: "task-1",
+        gcodeFile: "benchy.gcode.3mf",
+        plate: 2
+      }),
+      status(PrintState.PREPARE, 0)
+    );
+
+    expect(mocks.setActivePrintThread).toHaveBeenCalledWith(config.id, "thread-new", {
+      subtaskId: "subtask-1",
+      taskId: "task-1",
+      gcodeFile: "benchy.gcode.3mf",
+      plate: "2",
+      project: "Benchy"
+    });
+    expect(mocks.setActivePrintThread.mock.calls[0][2]).not.toHaveProperty("startedAt");
+  });
+
+  it("rejects a persisted thread when both cloud subtask IDs are known and changed", async () => {
+    mocks.getActivePrintThread.mockReturnValue({
+      threadId: "thread-cloud-old",
+      identity: { subtaskId: "subtask-old", taskId: "task-1", plate: "1", project: "Benchy" }
+    });
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+
+    await mocks.clients[0].emitStatus(
+      status(PrintState.RUNNING, 25, { subtaskId: "subtask-new", taskId: "task-1", plate: 1 }),
+      status(PrintState.UNKNOWN, 0)
+    );
+
+    expect(mocks.isPrintThreadAvailable).not.toHaveBeenCalled();
+    expect(mocks.removeActivePrintThread).toHaveBeenCalledWith(config.id);
+    expect(mocks.createPrintThread).toHaveBeenCalledOnce();
+  });
+
+  it("prioritizes a matching subtask ID over changed lower-level fields", async () => {
+    mocks.getActivePrintThread.mockReturnValue({
+      threadId: "thread-cloud-same",
+      identity: { subtaskId: "subtask-1", taskId: "task-old", plate: "1", project: "Old name" }
+    });
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+
+    await mocks.clients[0].emitStatus(
+      status(PrintState.RUNNING, 25, { subtaskId: "subtask-1", taskId: "task-new", plate: 2 }),
+      status(PrintState.UNKNOWN, 0)
+    );
+
+    expect(mocks.isPrintThreadAvailable).toHaveBeenCalledWith("thread-cloud-same");
+    expect(mocks.createPrintThread).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["task-new", 1],
+    ["task-1", 2]
+  ])("rejects changed task identity qualified by plate (%s, plate %s)", async (taskId, plate) => {
+    mocks.getActivePrintThread.mockReturnValue({
+      threadId: "thread-task-old",
+      identity: { taskId: "task-1", plate: "1", project: "Benchy" }
+    });
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+
+    await mocks.clients[0].emitStatus(status(PrintState.RUNNING, 25, { taskId, plate }), status(PrintState.UNKNOWN, 0));
+
+    expect(mocks.isPrintThreadAvailable).not.toHaveBeenCalled();
+    expect(mocks.createPrintThread).toHaveBeenCalledOnce();
+  });
+
+  it("uses the LAN descriptive fingerprint when cloud IDs are unavailable", async () => {
+    mocks.getActivePrintThread.mockReturnValue({
+      threadId: "thread-lan-old",
+      identity: {
+        gcodeFile: "old-benchy.gcode.3mf",
+        plate: "1",
+        project: "Benchy"
+      }
+    });
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+
+    await mocks.clients[0].emitStatus(
+      status(PrintState.RUNNING, 25, { gcodeFile: "new-benchy.gcode.3mf", plate: 1 }),
+      status(PrintState.UNKNOWN, 0)
+    );
+
+    expect(mocks.isPrintThreadAvailable).not.toHaveBeenCalled();
+    expect(mocks.createPrintThread).toHaveBeenCalledOnce();
+  });
+
+  it("keeps best-effort recovery for an ambiguous identical LAN fingerprint", async () => {
+    mocks.getActivePrintThread.mockReturnValue({
+      threadId: "thread-lan-ambiguous",
+      identity: {
+        gcodeFile: "benchy.gcode.3mf",
+        plate: "1",
+        project: "Benchy"
+      }
+    });
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+
+    await mocks.clients[0].emitStatus(
+      status(PrintState.RUNNING, 25, { gcodeFile: "benchy.gcode.3mf", plate: 1 }),
+      status(PrintState.UNKNOWN, 0)
+    );
+
+    expect(mocks.isPrintThreadAvailable).toHaveBeenCalledWith("thread-lan-ambiguous");
+    expect(mocks.createPrintThread).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the project when stronger identity information is insufficient", async () => {
+    mocks.getActivePrintThread.mockReturnValue({
+      threadId: "thread-partial-cloud",
+      identity: { subtaskId: "subtask-old", project: "Benchy" }
+    });
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+
+    await mocks.clients[0].emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
+
+    expect(mocks.isPrintThreadAvailable).toHaveBeenCalledWith("thread-partial-cloud");
+    expect(mocks.createPrintThread).not.toHaveBeenCalled();
   });
 
   it.each([
