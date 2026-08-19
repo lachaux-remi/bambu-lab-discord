@@ -159,12 +159,15 @@ export default class BambuLabClient extends EventEmitter {
     });
   }
 
-  public disconnect(): void {
-    if (this.mqttClient) {
-      logger.info({ printer: this.config.name }, "Disconnecting from printer");
-      this.mqttClient.end();
-      this.mqttClient = undefined;
+  public async disconnect(): Promise<void> {
+    const mqttClient = this.mqttClient;
+    if (!mqttClient) {
+      return;
     }
+
+    logger.info({ printer: this.config.name }, "Disconnecting from printer");
+    this.mqttClient = undefined;
+    await mqttClient.endAsync();
   }
 
   /**

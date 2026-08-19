@@ -6,6 +6,7 @@ export {
   getDiscordClient,
   initDiscordClient,
   sendToThread,
+  shutdownDiscordClient,
   updateThreadTags
 } from "./bot";
 

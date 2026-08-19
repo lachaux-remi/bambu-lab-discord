@@ -19,7 +19,7 @@ export const handlePrinterRemove = async (interaction: ChatInputCommandInteracti
   }
 
   // Arrêter l'imprimante si elle est en cours d'exécution
-  printerManager.stopPrinter(printerId);
+  await printerManager.stopPrinter(printerId);
 
   // Supprimer de la base de données
   const success = removePrinter(printerId);
