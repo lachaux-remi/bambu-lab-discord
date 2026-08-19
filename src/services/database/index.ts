@@ -43,12 +43,24 @@ const getEncryptionKey = (): Buffer | null => {
     return null;
   }
 
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(encodedKey)) {
+    throw new Error("CONFIG_ENCRYPTION_KEY must be a base64-encoded 32-byte key");
+  }
+
   const key = Buffer.from(encodedKey, "base64");
   if (key.length !== 32) {
     throw new Error("CONFIG_ENCRYPTION_KEY must be a base64-encoded 32-byte key");
   }
 
   return key;
+};
+
+const getConfigEncryptionKey = (config: BotConfig): Buffer | null => {
+  const encryptionKey = getEncryptionKey();
+  if (!encryptionKey && Object.keys(config.printers).length > 0) {
+    throw new Error("CONFIG_ENCRYPTION_KEY is required when printers are configured");
+  }
+  return encryptionKey;
 };
 
 const encryptAccessCode = (printerId: string, accessCode: string, key: Buffer | null): string => {
@@ -84,6 +96,23 @@ const decryptAccessCode = (printerId: string, accessCode: string, key: Buffer | 
   decipher.setAuthTag(Buffer.from(encodedAuthenticationTag, "base64"));
   return Buffer.concat([decipher.update(Buffer.from(encodedValue, "base64")), decipher.final()]).toString("utf8");
 };
+
+const createPersistedConfig = (
+  config: BotConfig,
+  encryptionKey: Buffer | null,
+  retainedAccessCodes: ReadonlyMap<string, string> = new Map()
+): BotConfig => ({
+  ...config,
+  printers: Object.fromEntries(
+    Object.entries(config.printers).map(([id, printer]) => [
+      id,
+      {
+        ...printer,
+        accessCode: retainedAccessCodes.get(id) ?? encryptAccessCode(id, printer.accessCode, encryptionKey)
+      }
+    ])
+  )
+});
 
 function assertValidConfig(value: unknown): asserts value is BotConfig {
   if (!value || typeof value !== "object") {
@@ -147,6 +176,7 @@ export const loadConfig = (): BotConfig => {
   if (!existsSync(CONFIG_PATH)) {
     logger.info("No config file found, creating default config");
     const defaultConfig = { ...DEFAULT_CONFIG, printers: {} };
+    getConfigEncryptionKey(defaultConfig);
     if (!saveConfig(defaultConfig)) {
       throw new Error("Failed to create the default printer configuration");
     }
@@ -158,13 +188,21 @@ export const loadConfig = (): BotConfig => {
     const config: unknown = JSON.parse(data);
     assertValidConfig(config);
 
-    const encryptionKey = getEncryptionKey();
+    const encryptionKey = getConfigEncryptionKey(config);
+    const retainedAccessCodes = new Map<string, string>();
+    let requiresEncryptionMigration = false;
     for (const [id, printer] of Object.entries(config.printers)) {
+      if (printer.accessCode.startsWith(ENCRYPTED_VALUE_PREFIX)) {
+        retainedAccessCodes.set(id, printer.accessCode);
+      } else {
+        requiresEncryptionMigration = true;
+      }
       printer.accessCode = decryptAccessCode(id, printer.accessCode, encryptionKey);
     }
 
-    if (!encryptionKey && Object.keys(config.printers).length > 0) {
-      logger.warn("CONFIG_ENCRYPTION_KEY is not set; printer access codes are stored in plaintext");
+    if (requiresEncryptionMigration) {
+      writeJsonAtomic(CONFIG_PATH, createPersistedConfig(config, encryptionKey, retainedAccessCodes));
+      logger.info("Plaintext printer access codes migrated to encrypted storage");
     }
 
     logger.info({ printerCount: Object.keys(config.printers).length }, "Config loaded");
@@ -183,17 +221,8 @@ export const loadConfig = (): BotConfig => {
  */
 export const saveConfig = (config: BotConfig): boolean => {
   try {
-    const encryptionKey = getEncryptionKey();
-    const persistedConfig: BotConfig = {
-      ...config,
-      printers: Object.fromEntries(
-        Object.entries(config.printers).map(([id, printer]) => [
-          id,
-          { ...printer, accessCode: encryptAccessCode(id, printer.accessCode, encryptionKey) }
-        ])
-      )
-    };
-    writeJsonAtomic(CONFIG_PATH, persistedConfig);
+    const encryptionKey = getConfigEncryptionKey(config);
+    writeJsonAtomic(CONFIG_PATH, createPersistedConfig(config, encryptionKey));
     logger.debug("Config saved");
     return true;
   } catch (error) {

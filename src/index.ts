@@ -1,4 +1,5 @@
 import { getLogger } from "./libs/logger";
+import { getConfig } from "./services/database";
 import { initDiscordClient } from "./services/discord/bot";
 import { registerCommands, setupCommandHandlers } from "./services/discord/commands";
 import { printerManager } from "./services/printer-manager";
@@ -7,6 +8,9 @@ const logger = getLogger("Application");
 
 const main = async () => {
   logger.info("🚀 Starting Bambu Lab Discord Bot...");
+
+  // Validate and migrate the local configuration before making external connections.
+  getConfig();
 
   // Initialize Discord client
   await initDiscordClient();
