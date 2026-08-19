@@ -214,8 +214,7 @@ export const ensurePrinterTag = async (forumChannelId: string, printerName: stri
  */
 export const initDiscordClient = async (): Promise<void> => {
   if (!DISCORD_BOT_TOKEN) {
-    logger.warn("Discord bot token missing; bot will remain disabled");
-    return;
+    throw new Error("DISCORD_BOT_TOKEN is required");
   }
 
   client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
@@ -226,9 +225,24 @@ export const initDiscordClient = async (): Promise<void> => {
 
   client.on("error", error => logger.error({ error }, "Discord client error"));
 
-  await client.login(DISCORD_BOT_TOKEN).catch(error => {
+  try {
+    await client.login(DISCORD_BOT_TOKEN);
+  } catch (error) {
     logger.error({ error }, "Failed to login Discord client");
-  });
+    await client.destroy();
+    client = null;
+    throw error;
+  }
+};
+
+export const shutdownDiscordClient = async (): Promise<void> => {
+  const discordClient = client;
+  client = null;
+
+  await Promise.allSettled(forumMutationQueues.values());
+  await discordClient?.destroy();
+  forumChannelCache.clear();
+  forumMutationQueues.clear();
 };
 
 /**
