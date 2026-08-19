@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.0](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.2.2...v2.3.0) (2026-08-19)
+
+
+### Features
+
+* verify Bambu printer TLS certificates ([#34](https://github.com/lachaux-remi/bambu-lab-discord/issues/34)) ([b845f88](https://github.com/lachaux-remi/bambu-lab-discord/commit/b845f88527e2b34642189f3f4df16b4cc11f1b06))
+
+
+### Bug Fixes
+
+* bound project DNS resolution ([#31](https://github.com/lachaux-remi/bambu-lab-discord/issues/31)) ([19ef5e9](https://github.com/lachaux-remi/bambu-lab-discord/commit/19ef5e9e7ecde87b61975c6d2ba6861313c3bb2d))
+* harden print recovery reliability ([#33](https://github.com/lachaux-remi/bambu-lab-discord/issues/33)) ([3856628](https://github.com/lachaux-remi/bambu-lab-discord/commit/38566282db340c3a73ffcd5ca53a13d65804fc83))
+
 ## [2.2.2](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.2.1...v2.2.2) (2026-08-19)
 
 
