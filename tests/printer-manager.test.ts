@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
     connect: ReturnType<typeof vi.fn>;
     disconnect: ReturnType<typeof vi.fn>;
     isConnected: ReturnType<typeof vi.fn>;
+    takeScreenshotWithLight: ReturnType<typeof vi.fn>;
     emitStatus: (newStatus: Status, oldStatus: Status) => Promise<void>;
   }> = [];
   const state: { nextConnection?: Promise<void>; nextConnectionError?: Error } = {};
@@ -170,6 +171,17 @@ describe("PrinterManager public seam", () => {
     expect(mocks.clients[0].connect).toHaveBeenCalledOnce();
     expect(printerManager.getRunningPrinters()).toEqual([config.id]);
     expect(printerManager.getPrinterStatus(config.id)).toEqual({ running: true, connected: true });
+  });
+
+  it("captures a screenshot through the running printer", async () => {
+    const screenshot = Buffer.from("jpeg");
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+    mocks.clients[0].takeScreenshotWithLight.mockResolvedValue(screenshot);
+
+    await expect(printerManager.takeScreenshot(config.id)).resolves.toBe(screenshot);
+    expect(mocks.clients[0].takeScreenshotWithLight).toHaveBeenCalledOnce();
+    await expect(printerManager.takeScreenshot("missing")).resolves.toBeNull();
   });
 
   it("shares one client between concurrent starts for the same printer", async () => {

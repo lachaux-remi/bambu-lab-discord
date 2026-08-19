@@ -1,4 +1,4 @@
-import { PermissionsBitField } from "discord.js";
+import { MessageFlags, PermissionsBitField } from "discord.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const seams = vi.hoisted(() => ({
@@ -6,7 +6,8 @@ const seams = vi.hoisted(() => ({
   add: vi.fn(),
   edit: vi.fn(),
   list: vi.fn(),
-  remove: vi.fn()
+  remove: vi.fn(),
+  screenshot: vi.fn()
 }));
 
 vi.mock("../src/services/discord/bot", () => ({ getDiscordClient: () => seams.client }));
@@ -14,6 +15,7 @@ vi.mock("../src/services/discord/commands/printer-add", () => ({ handlePrinterAd
 vi.mock("../src/services/discord/commands/printer-edit", () => ({ handlePrinterEdit: seams.edit }));
 vi.mock("../src/services/discord/commands/printer-list", () => ({ handlePrinterList: seams.list }));
 vi.mock("../src/services/discord/commands/printer-remove", () => ({ handlePrinterRemove: seams.remove }));
+vi.mock("../src/services/discord/commands/printer-screenshot", () => ({ handlePrinterScreenshot: seams.screenshot }));
 
 describe("printer slash command permissions", () => {
   beforeEach(() => {
@@ -26,11 +28,11 @@ describe("printer slash command permissions", () => {
     return seams.client.on.mock.calls[0][1] as (interaction: unknown) => Promise<void>;
   };
 
-  const interaction = (permissions: PermissionsBitField) => ({
+  const interaction = (permissions: PermissionsBitField, subcommand = "list") => ({
     commandName: "printer",
     isChatInputCommand: () => true,
     memberPermissions: permissions,
-    options: { getSubcommand: vi.fn(() => "list") },
+    options: { getSubcommand: vi.fn(() => subcommand) },
     reply: vi.fn(),
     replied: false,
     deferred: false
@@ -44,7 +46,7 @@ describe("printer slash command permissions", () => {
 
     expect(request.reply).toHaveBeenCalledWith({
       content: "❌ Vous devez avoir la permission **Gérer le serveur** pour utiliser cette commande.",
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     expect(request.options.getSubcommand).not.toHaveBeenCalled();
     expect(seams.list).not.toHaveBeenCalled();
@@ -59,5 +61,15 @@ describe("printer slash command permissions", () => {
 
     expect(seams.list).toHaveBeenCalledWith(request);
     expect(request.reply).not.toHaveBeenCalled();
+  });
+
+  it("dispatches the screenshot subcommand through the protected printer command", async () => {
+    const { PermissionFlagsBits } = await import("discord.js");
+    const handler = await installHandler();
+    const request = interaction(new PermissionsBitField(PermissionFlagsBits.ManageGuild), "screenshot");
+
+    await handler(request);
+
+    expect(seams.screenshot).toHaveBeenCalledWith(request);
   });
 });

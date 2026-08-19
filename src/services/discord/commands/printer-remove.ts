@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction } from "discord.js";
+import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
 import { getLogger } from "../../../libs/logger";
 import { getPrinter, removePrinter } from "../../database";
@@ -13,7 +13,7 @@ export const handlePrinterRemove = async (interaction: ChatInputCommandInteracti
   if (!printer) {
     await interaction.reply({
       content: `❌ Imprimante **${printerId}** non trouvée`,
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -28,12 +28,12 @@ export const handlePrinterRemove = async (interaction: ChatInputCommandInteracti
     logger.info({ printerId, name: printer.name }, "Printer removed via command");
     await interaction.reply({
       content: `✅ Imprimante **${printer.name}** supprimée`,
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
   } else {
     await interaction.reply({
       content: `❌ Impossible de supprimer l'imprimante **${printer.name}**`,
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
   }
 };

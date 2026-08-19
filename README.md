@@ -109,6 +109,7 @@ Une fois le bot démarré, utilisez ces commandes Discord :
 | `/printer remove <name>`                                    | Supprimer une imprimante               |
 | `/printer list`                                             | Lister les imprimantes configurées     |
 | `/printer edit <name> [options]`                            | Modifier une imprimante                |
+| `/printer screenshot <name>`                                | Publier une capture caméra de test     |
 
 ### Exemple d'ajout d'imprimante
 
@@ -129,6 +130,9 @@ Pour tester les captures :
 ```bash
 pnpm run debug:rtc
 ```
+
+Depuis Discord, `/printer screenshot <name>` capture une image réelle et crée une notification publique de test dans
+le forum configuré pour l'imprimante. Cette commande nécessite la permission **Gérer le serveur** ou **Administrateur**.
 
 ## Validation TLS Bambu
 

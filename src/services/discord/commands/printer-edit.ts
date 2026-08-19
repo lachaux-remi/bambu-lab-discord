@@ -1,4 +1,4 @@
-import { ChannelType, ChatInputCommandInteraction } from "discord.js";
+import { ChannelType, ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
 import { getLogger } from "../../../libs/logger";
 import { getPrinter, updatePrinter } from "../../database";
@@ -14,7 +14,7 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   if (!printer) {
     await interaction.reply({
       content: `❌ Imprimante **${printerId}** non trouvée`,
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -31,12 +31,12 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   if (channel && channel.type !== ChannelType.GuildForum) {
     await interaction.reply({
       content: "❌ Le channel doit être un **forum channel**",
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   // Construire les mises à jour
   const updates: Record<string, unknown> = {};
