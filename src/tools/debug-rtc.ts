@@ -5,7 +5,8 @@
  * Usage: pnpm run debug:rtc
  *
  * Options via environment variables:
- * - PRINTER_ADDRESS + PRINTER_ACCESS_CODE + PRINTER_RTC_PORT (optional, default 6000): Test natif Bambu protocol
+ * - PRINTER_ADDRESS + PRINTER_ACCESS_CODE + PRINTER_SERIAL_NUMBER + PRINTER_RTC_PORT (optional, default 6000):
+ *   Test natif Bambu protocol
  * - Or it will test all configured printers
  */
 import { writeFileSync } from "fs";
@@ -23,11 +24,16 @@ const saveScreenshot = (buffer: Buffer): string => {
   return filename;
 };
 
-const testNativeProtocol = async (ip: string, accessCode: string, port: number = 6000): Promise<boolean> => {
+const testNativeProtocol = async (
+  ip: string,
+  accessCode: string,
+  serial: string,
+  port: number = 6000
+): Promise<boolean> => {
   const startTime = Date.now();
   logger.info({ ip, port, mode: "Native-Bambu" }, "Testing native Bambu protocol...");
 
-  const buffer = await takeScreenshot(ip, accessCode, port);
+  const buffer = await takeScreenshot(ip, accessCode, serial, port);
   const elapsed = Date.now() - startTime;
 
   if (buffer) {
@@ -45,10 +51,11 @@ const testNativeProtocol = async (ip: string, accessCode: string, port: number =
   // Option 1: Test from environment variables
   const printerIp = process.env.PRINTER_ADDRESS;
   const printerCode = process.env.PRINTER_ACCESS_CODE;
+  const printerSerial = process.env.PRINTER_SERIAL_NUMBER;
   const printerRtcPort = parseInt(process.env.PRINTER_RTC_PORT ?? "6000", 10);
-  if (printerIp && printerCode) {
+  if (printerIp && printerCode && printerSerial) {
     logger.info("Testing native Bambu protocol (direct connection to printer)...");
-    const success = await testNativeProtocol(printerIp, printerCode, printerRtcPort);
+    const success = await testNativeProtocol(printerIp, printerCode, printerSerial, printerRtcPort);
     process.exit(success ? 0 : 1);
   }
 
@@ -56,7 +63,9 @@ const testNativeProtocol = async (ip: string, accessCode: string, port: number =
   const printers = getAllPrinters();
 
   if (printers.length === 0) {
-    logger.warn("No printers configured. Set PRINTER_ADDRESS + PRINTER_ACCESS_CODE or use /printer add command.");
+    logger.warn(
+      "No printers configured. Set PRINTER_ADDRESS + PRINTER_ACCESS_CODE + PRINTER_SERIAL_NUMBER or use /printer add command."
+    );
     process.exit(1);
   }
 
@@ -66,7 +75,7 @@ const testNativeProtocol = async (ip: string, accessCode: string, port: number =
   let failCount = 0;
 
   for (const printer of printers) {
-    const success = await testNativeProtocol(printer.ip, printer.accessCode, printer.rtcPort);
+    const success = await testNativeProtocol(printer.ip, printer.accessCode, printer.serial, printer.rtcPort);
 
     if (success) {
       successCount++;

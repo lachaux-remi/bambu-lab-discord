@@ -9,7 +9,7 @@
   "main": "index.js",
   "scripts": {
     "clean": "rimraf dist",
-    "build": "pnpm run clean && tsc",
+    "build": "pnpm run clean && tsc && mkdir -p dist/libs/bambu-tls && cp src/libs/bambu-tls/bambu-printer-ca.pem dist/libs/bambu-tls/bambu-printer-ca.pem",
     "start": "node dist/index.js",
     "local": "tsx --env-file-if-exists=.env src/index.ts",
     "local:watch": "nodemon",

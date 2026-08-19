@@ -3,6 +3,7 @@ import EventEmitter from "node:events";
 
 import { CHAMBER_LIGHT_WARMUP_MS, ERROR_LOG_COOLDOWN_MS, MQTT_PROTOCOL } from "../../constants";
 import { MessageCommand } from "../../enums";
+import { getBambuTlsOptions, isTlsCertificateError } from "../../libs/bambu-tls";
 import { getLogger } from "../../libs/logger";
 import { takeScreenshot } from "../../libs/rtc";
 import type { ClientEvents } from "../../types/client-events";
@@ -102,7 +103,7 @@ export default class BambuLabClient extends EventEmitter {
         password: this.config.accessCode,
         connectTimeout: this.connectTimeoutMs,
         reconnectPeriod: 5000,
-        rejectUnauthorized: false
+        ...(MQTT_PROTOCOL === "mqtts" ? getBambuTlsOptions(this.config.serial) : {})
       });
       this.mqttClient = mqttClient;
       let connectionState: "pending" | "connected" | "failed" = "pending";
@@ -195,13 +196,30 @@ export default class BambuLabClient extends EventEmitter {
         const now = Date.now();
         if (!this.lastMqttErrorLoggedAt || now - this.lastMqttErrorLoggedAt >= ERROR_LOG_COOLDOWN_MS) {
           logger.error(
-            { printer: this.config.name, message: error.message },
-            "Error connecting to BambuLab MQTT server"
+            {
+              printer: this.config.name,
+              ip: this.config.ip,
+              expectedIdentity: this.config.serial,
+              message: error.message
+            },
+            isTlsCertificateError(error)
+              ? "BambuLab MQTT certificate validation failed"
+              : "Error connecting to BambuLab MQTT server"
           );
           this.lastMqttErrorLoggedAt = now;
         }
         if (connectionState === "pending") {
-          void failInitialConnection(error);
+          const connectionError = isTlsCertificateError(error)
+            ? Object.assign(
+                new Error(
+                  `MQTT TLS certificate validation failed for printer ${this.config.name} at ${this.config.ip}; ` +
+                    `expected identity ${this.config.serial}: ${error.message}`,
+                  { cause: error }
+                ),
+                { code: (error as Error & { code: string }).code }
+              )
+            : error;
+          void failInitialConnection(connectionError);
         }
       });
     });
@@ -325,7 +343,7 @@ export default class BambuLabClient extends EventEmitter {
     }
 
     try {
-      return await takeScreenshot(this.config.ip, this.config.accessCode, this.config.rtcPort);
+      return await takeScreenshot(this.config.ip, this.config.accessCode, this.config.serial, this.config.rtcPort);
     } finally {
       if (!wasLightOn) {
         logger.debug({ printer: this.config.name }, "Turning off chamber light after screenshot");

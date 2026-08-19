@@ -19,8 +19,8 @@ Les notifications incluent des captures d'écran en temps réel et des images de
 - 🖨️ **Multi-imprimantes** : Gérez plusieurs imprimantes depuis un seul bot
 - 📺 **Multi-channels** : Chaque imprimante peut avoir son propre forum channel
 - 🏷️ **Tags automatiques** : Tags de statut et d'imprimante gérés automatiquement
-- 📡 Connexion MQTT sécurisée aux imprimantes Bambu Lab
-- 📸 Captures d'écran automatiques via protocole natif Bambu
+- 📡 Connexion MQTT sécurisée avec validation du certificat Bambu Lab
+- 📸 Captures d'écran automatiques via protocole natif Bambu et TLS vérifié
 - 🖼️ Extraction et affichage des images de prévisualisation du projet
 - 🔔 Notifications Discord riches avec embeds dans des forum threads
 - 🔄 Reconnexion automatique en cas de perte de connexion
@@ -80,6 +80,9 @@ MQTT_CONNECT_TIMEOUT_MS=30000
 CHAMBER_LIGHT_OFF_DELAY_MINUTES=5
 CHAMBER_LIGHT_WARMUP_MS=1500
 
+# Validation des certificats MQTT et caméra (laisser désactivé)
+BAMBU_TLS_INSECURE=false
+
 # Mode debug (optionnel)
 DEBUG=false
 ```
@@ -117,15 +120,34 @@ Une fois le bot démarré, utilisez ces commandes Discord :
 
 Le bot capture des screenshots directement depuis vos imprimantes via le protocole natif Bambu Lab :
 
-- Connexion TLS directe sur le port 6000 de l'imprimante
+- Connexion TLS vérifiée sur le port 6000 de l'imprimante
 - Pas de service externe nécessaire (ffmpeg, go2rtc, etc.)
-- Utilise l'IP et le code d'accès de l'imprimante
+- Utilise l'IP comme destination et le serial déjà configuré comme identité TLS
 
 Pour tester les captures :
 
 ```bash
 pnpm run debug:rtc
 ```
+
+## Validation TLS Bambu
+
+Les connexions MQTT `mqtts` et caméra RTC vérifient automatiquement le certificat présenté par l'imprimante avec le
+bundle CA public de Bambu Lab embarqué dans l'application. L'adresse IP reste la destination réseau et le serial de
+l'imprimante est utilisé pour SNI et la vérification d'identité. Aucun certificat individuel ni autre champ de
+configuration n'est demandé : les imprimantes déjà enregistrées et les nouvelles utilisent leur champ `serial`
+existant. Les fichiers `printers.json` et `active-threads.json` ne sont ni migrés, ni réinitialisés, ni supprimés.
+
+En dépannage temporaire uniquement, `BAMBU_TLS_INSECURE=true` désactive la validation des certificats pour MQTT et RTC.
+Ce fallback est **dangereux et désactivé par défaut** : il permet une attaque de l'homme du milieu pouvant exposer le
+code d'accès, les commandes de l'imprimante et le flux caméra. Un avertissement de sécurité très visible est loggué une
+seule fois au démarrage lorsqu'il est activé. La variable accepte uniquement `true` ou `false`; toute autre valeur fait
+échouer le chargement de la configuration TLS. Réactivez `BAMBU_TLS_INSECURE=false` dès le diagnostic terminé.
+
+Le bundle couvre les autorités BBL d'origine et CA2 RSA/ECC actuellement publiées par BambuStudio. Une nouvelle CA ou
+un nouveau modèle/firmware utilisant une autre chaîne nécessitera une mise à jour de ce bundle. Les ports pris en charge
+restent les ports MQTT et RTC configurés pour l'imprimante (8883 et 6000 par défaut). La provenance, la licence amont et
+les empreintes du bundle sont documentées dans [`src/libs/bambu-tls/README.md`](src/libs/bambu-tls/README.md).
 
 ## Utilisation
 

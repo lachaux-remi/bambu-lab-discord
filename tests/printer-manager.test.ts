@@ -200,6 +200,19 @@ describe("PrinterManager public seam", () => {
     expect(mocks.Client).toHaveBeenCalledTimes(2);
   });
 
+  it("fails global startup on MQTT certificate validation errors", async () => {
+    const tlsError = Object.assign(new Error("certificate does not match SERIAL"), {
+      code: "ERR_TLS_CERT_ALTNAME_INVALID"
+    });
+    mocks.state.nextConnectionError = tlsError;
+    mocks.getEnabledPrinters.mockReturnValue([config]);
+    const { printerManager } = await import("../src/services/printer-manager");
+
+    await expect(printerManager.startAll()).rejects.toBe(tlsError);
+    expect(printerManager.getRunningPrinters()).toEqual([]);
+    expect(mocks.clients[0].disconnect).toHaveBeenCalledOnce();
+  });
+
   it("stops a queued start before it opens a connection", async () => {
     const { printerManager } = await import("../src/services/printer-manager");
 

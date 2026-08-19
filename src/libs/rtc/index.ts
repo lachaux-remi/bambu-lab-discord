@@ -1,5 +1,6 @@
 import * as tls from "tls";
 
+import { getBambuTlsOptions, isTlsCertificateError } from "../bambu-tls";
 import { getLogger } from "../logger";
 
 const logger = getLogger("RTC");
@@ -64,6 +65,7 @@ const buildAuthPayload = (username: string, accessCode: string): Buffer => {
 export const takeScreenshotFromBambuStream = (
   ip: string,
   accessCode: string,
+  serial: string,
   port: number = 6000
 ): Promise<Buffer | null> => {
   return new Promise(resolve => {
@@ -82,6 +84,15 @@ export const takeScreenshotFromBambuStream = (
       resolve(result);
     };
 
+    const logConnectionError = (error: Error): void => {
+      const context = { ip, port, expectedIdentity: serial, error: error.message };
+      if (isTlsCertificateError(error)) {
+        logger.warn(context, "Bambu camera certificate validation failed");
+      } else {
+        logger.debug(context, "Bambu stream error");
+      }
+    };
+
     const timeout = setTimeout(() => {
       logger.debug({ ip, port, bufferSize: buffer.length }, "Bambu stream timeout");
       finish(null);
@@ -92,7 +103,7 @@ export const takeScreenshotFromBambuStream = (
         {
           host: ip,
           port: port,
-          rejectUnauthorized: false
+          ...getBambuTlsOptions(serial)
         },
         () => {
           logger.debug({ ip, port }, "Connected to Bambu camera stream");
@@ -117,7 +128,7 @@ export const takeScreenshotFromBambuStream = (
       });
 
       socket.on("error", (error: Error) => {
-        logger.debug({ ip, error: error.message }, "Bambu stream error");
+        logConnectionError(error);
         finish(null);
       });
 
@@ -125,7 +136,7 @@ export const takeScreenshotFromBambuStream = (
         finish(null);
       });
     } catch (error) {
-      logger.debug({ ip, error: (error as Error).message }, "Failed to connect to Bambu stream");
+      logConnectionError(error as Error);
       finish(null);
     }
   });
@@ -136,9 +147,15 @@ export const takeScreenshotFromBambuStream = (
  *
  * @param ip The printer IP address
  * @param accessCode The printer access code
+ * @param serial The printer serial used as the TLS server identity
  * @param port The RTC port (default: 6000)
  * @returns Buffer containing the screenshot or null on failure
  */
-export const takeScreenshot = async (ip: string, accessCode: string, port: number = 6000): Promise<Buffer | null> => {
-  return takeScreenshotFromBambuStream(ip, accessCode, port);
+export const takeScreenshot = async (
+  ip: string,
+  accessCode: string,
+  serial: string,
+  port: number = 6000
+): Promise<Buffer | null> => {
+  return takeScreenshotFromBambuStream(ip, accessCode, serial, port);
 };
