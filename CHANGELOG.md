@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.1](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.2.0...v2.2.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* gate releases on CI validation ([#23](https://github.com/lachaux-remi/bambu-lab-discord/issues/23)) ([1ede5d2](https://github.com/lachaux-remi/bambu-lab-discord/commit/1ede5d219aab05d25307d8c3e13cff0730d7cc0e))
+* harden MQTT startup and print recovery ([#25](https://github.com/lachaux-remi/bambu-lab-discord/issues/25)) ([467ba7e](https://github.com/lachaux-remi/bambu-lab-discord/commit/467ba7e388a673182a4e5393afbff6616ec62bb2))
+* harden project downloads and error logging ([#24](https://github.com/lachaux-remi/bambu-lab-discord/issues/24)) ([0d67b9c](https://github.com/lachaux-remi/bambu-lab-discord/commit/0d67b9c6e655bb560e0b05b1489ad1c8659283b0))
+
 ## [2.2.0](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.1.0...v2.2.0) (2026-08-19)
 
 ### Features

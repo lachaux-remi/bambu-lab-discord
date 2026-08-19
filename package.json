@@ -1,6 +1,6 @@
 {
   "name": "bambu-lab-discord",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "",
   "packageManager": "pnpm@11.0.9",
   "engines": {
