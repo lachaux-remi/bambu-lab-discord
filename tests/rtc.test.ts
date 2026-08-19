@@ -1,12 +1,16 @@
 import { EventEmitter } from "node:events";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { extractJpegFrame, takeScreenshotFromBambuStream } from "../src/libs/rtc";
 
-const { connectMock } = vi.hoisted(() => ({ connectMock: vi.fn() }));
+const { connectMock, loggerMock } = vi.hoisted(() => ({
+  connectMock: vi.fn(),
+  loggerMock: { debug: vi.fn(), warn: vi.fn() }
+}));
 
 vi.mock("node:tls", () => ({ connect: connectMock }));
 vi.mock("tls", () => ({ connect: connectMock }));
+vi.mock("../src/libs/logger", () => ({ getLogger: () => loggerMock }));
 
 class FakeSocket extends EventEmitter {
   public readonly destroy = vi.fn();
@@ -24,6 +28,13 @@ describe("RTC stream", () => {
       connected = callback;
       return socket;
     });
+    loggerMock.debug.mockReset();
+    loggerMock.warn.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it("extracts only a complete JPEG frame", () => {
@@ -35,11 +46,17 @@ describe("RTC stream", () => {
   });
 
   it("authenticates, assembles fragmented stream data, and closes after one frame", async () => {
-    const result = takeScreenshotFromBambuStream("192.0.2.1", "access-code", 6001);
+    const result = takeScreenshotFromBambuStream("192.0.2.1", "access-code", "SERIAL-1", 6001);
     connected();
 
     expect(connectMock).toHaveBeenCalledWith(
-      { host: "192.0.2.1", port: 6001, rejectUnauthorized: false },
+      {
+        ca: expect.any(Buffer),
+        host: "192.0.2.1",
+        port: 6001,
+        rejectUnauthorized: true,
+        servername: "SERIAL-1"
+      },
       expect.any(Function)
     );
     const authPayload = socket.write.mock.calls[0][0] as Buffer;
@@ -57,7 +74,7 @@ describe("RTC stream", () => {
   });
 
   it("settles with null when the peer closes before a complete frame", async () => {
-    const result = takeScreenshotFromBambuStream("192.0.2.1", "code");
+    const result = takeScreenshotFromBambuStream("192.0.2.1", "code", "SERIAL-1");
     socket.emit("close");
 
     await expect(result).resolves.toBeNull();
@@ -65,20 +82,54 @@ describe("RTC stream", () => {
 
   it("destroys the socket and settles on timeout", async () => {
     vi.useFakeTimers();
-    const result = takeScreenshotFromBambuStream("192.0.2.1", "code");
+    const result = takeScreenshotFromBambuStream("192.0.2.1", "code", "SERIAL-1");
 
     await vi.advanceTimersByTimeAsync(15_000);
 
     await expect(result).resolves.toBeNull();
     expect(socket.destroy).toHaveBeenCalledOnce();
-    vi.useRealTimers();
   });
 
   it("settles with null on socket errors", async () => {
-    const result = takeScreenshotFromBambuStream("192.0.2.1", "code");
+    const result = takeScreenshotFromBambuStream("192.0.2.1", "code", "SERIAL-1");
     socket.emit("error", new Error("connection refused"));
 
     await expect(result).resolves.toBeNull();
     expect(socket.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("returns null and logs certificate validation failures with identity context", async () => {
+    const result = takeScreenshotFromBambuStream("192.0.2.1", "code", "SERIAL-1");
+    const error = Object.assign(new Error("certificate does not match"), {
+      code: "ERR_TLS_CERT_ALTNAME_INVALID"
+    });
+    socket.emit("error", error);
+
+    await expect(result).resolves.toBeNull();
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      {
+        ip: "192.0.2.1",
+        port: 6000,
+        expectedIdentity: "SERIAL-1",
+        error: "certificate does not match"
+      },
+      "Bambu camera certificate validation failed"
+    );
+  });
+
+  it("uses the explicit insecure fallback for RTC", async () => {
+    vi.stubEnv("BAMBU_TLS_INSECURE", "true");
+    vi.resetModules();
+    const { takeScreenshotFromBambuStream: takeInsecureScreenshot } = await import("../src/libs/rtc");
+
+    const result = takeInsecureScreenshot("192.0.2.1", "code", "SERIAL-1");
+    expect(connectMock).toHaveBeenCalledWith(
+      expect.objectContaining({ rejectUnauthorized: false, servername: "SERIAL-1" }),
+      expect.any(Function)
+    );
+    socket.emit("close");
+
+    await expect(result).resolves.toBeNull();
+    expect(loggerMock.warn).toHaveBeenCalledWith(expect.stringContaining("BAMBU_TLS_INSECURE=true"));
   });
 });

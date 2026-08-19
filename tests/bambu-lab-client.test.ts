@@ -5,9 +5,13 @@ import { MessageCommand, PrintState } from "../src/enums";
 import BambuLabClient from "../src/services/bambu-lab";
 import type { PrinterConfig } from "../src/types/printer-config";
 
-const { connectMock } = vi.hoisted(() => ({ connectMock: vi.fn() }));
+const { connectMock, takeScreenshotMock } = vi.hoisted(() => ({
+  connectMock: vi.fn(),
+  takeScreenshotMock: vi.fn()
+}));
 
 vi.mock("mqtt", () => ({ connect: connectMock }));
+vi.mock("../src/libs/rtc", () => ({ takeScreenshot: takeScreenshotMock }));
 
 type MqttCallback = (error?: Error) => void;
 
@@ -42,11 +46,14 @@ describe("BambuLabClient MQTT lifecycle", () => {
     mqttClient = new FakeMqttClient();
     connectMock.mockReset();
     connectMock.mockReturnValue(mqttClient);
+    takeScreenshotMock.mockReset();
+    takeScreenshotMock.mockResolvedValue(null);
     client = new BambuLabClient(config);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it("subscribes to reports before requesting the initial push", async () => {
@@ -115,11 +122,62 @@ describe("BambuLabClient MQTT lifecycle", () => {
 
     expect(connectMock).toHaveBeenCalledWith(
       "mqtts://192.0.2.10:8883",
-      expect.objectContaining({ connectTimeout: 1_000 })
+      expect.objectContaining({
+        ca: expect.any(Buffer),
+        connectTimeout: 1_000,
+        rejectUnauthorized: true,
+        servername: "SERIAL-1"
+      })
     );
     expect(mqttClient.end).toHaveBeenCalledWith(true);
     expect(client.isConnected()).toBe(false);
     await rejection;
+  });
+
+  it("rejects certificate validation failures with useful printer identity context", async () => {
+    const tlsError = Object.assign(new Error("certificate does not match"), {
+      code: "ERR_TLS_CERT_ALTNAME_INVALID"
+    });
+
+    const connection = client.connect();
+    mqttClient.emit("error", tlsError);
+
+    await expect(connection).rejects.toMatchObject({
+      message: expect.stringContaining(
+        "MQTT TLS certificate validation failed for printer Test Printer at 192.0.2.10; expected identity SERIAL-1"
+      ),
+      code: "ERR_TLS_CERT_ALTNAME_INVALID",
+      cause: tlsError
+    });
+    expect(mqttClient.end).toHaveBeenCalledWith(true);
+    expect(client.isConnected()).toBe(false);
+  });
+
+  it("does not pass TLS options to the plaintext development protocol", async () => {
+    vi.stubEnv("MQTT_PROTOCOL", "mqtt");
+    vi.resetModules();
+    const { default: PlainMqttBambuLabClient } = await import("../src/services/bambu-lab");
+    const plainClient = new PlainMqttBambuLabClient({ ...config, port: 1883 });
+
+    const connection = plainClient.connect();
+    mqttClient.emit("connect");
+    await connection;
+
+    expect(connectMock).toHaveBeenCalledWith("mqtt://192.0.2.10:1883", expect.any(Object));
+    const options = connectMock.mock.calls.at(-1)?.[1];
+    expect(options).not.toHaveProperty("ca");
+    expect(options).not.toHaveProperty("rejectUnauthorized");
+    expect(options).not.toHaveProperty("servername");
+  });
+
+  it("passes the existing printer serial to RTC capture", async () => {
+    vi.useFakeTimers();
+
+    const screenshot = client.takeScreenshotWithLight();
+    await vi.advanceTimersByTimeAsync(1_500);
+    await screenshot;
+
+    expect(takeScreenshotMock).toHaveBeenCalledWith("192.0.2.10", "access-code", "SERIAL-1", 6000);
   });
 
   it("disconnect cancels and owns an in-flight initial connection", async () => {

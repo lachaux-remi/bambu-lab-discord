@@ -14,6 +14,7 @@ import { appendFileSync, writeFileSync } from "fs";
 import { connect } from "mqtt";
 import { join } from "path";
 
+import { getBambuTlsOptions } from "../libs/bambu-tls";
 import { getLogger } from "../libs/logger";
 
 const logger = getLogger("MQTT-Debug");
@@ -52,7 +53,7 @@ const client = connect(BROKER_ADDRESS, {
   username: "bblp",
   password: PRINTER_ACCESS_CODE,
   reconnectPeriod: 1,
-  rejectUnauthorized: false
+  ...getBambuTlsOptions(PRINTER_SERIAL)
 });
 
 client.on("connect", () => {

@@ -1,5 +1,6 @@
 import { CHAMBER_LIGHT_OFF_DELAY_MS, NOTIFICATION_PERCENT } from "../../constants";
 import { PrintState } from "../../enums";
+import { isTlsCertificateError } from "../../libs/bambu-tls";
 import { getLogger } from "../../libs/logger";
 import type { EmbedResult } from "../../types/discord";
 import type { PrinterConfig } from "../../types/printer-config";
@@ -140,7 +141,7 @@ class PrinterManager {
     logger.info({ count: enabledPrinters.length }, "Starting all enabled printers");
 
     for (const config of enabledPrinters) {
-      await this.startPrinter(config.id);
+      await this.startPrinterInternal(config.id, true);
     }
   }
 
@@ -165,6 +166,10 @@ class PrinterManager {
    * Démarre une imprimante spécifique
    */
   public async startPrinter(printerId: string): Promise<boolean> {
+    return await this.startPrinterInternal(printerId, false);
+  }
+
+  private async startPrinterInternal(printerId: string, failOnCertificateError: boolean): Promise<boolean> {
     const config = getPrinter(printerId);
     if (!config) {
       logger.error({ printerId }, "Printer not found");
@@ -187,7 +192,7 @@ class PrinterManager {
     };
     const promise = this.enqueuePrinterOperation(printerId, async () => {
       try {
-        return await this.startPrinterOperation(config, pendingStart);
+        return await this.startPrinterOperation(config, pendingStart, failOnCertificateError);
       } finally {
         if (this.startingPrinters.get(printerId) === pendingStart) {
           this.startingPrinters.delete(printerId);
@@ -199,7 +204,11 @@ class PrinterManager {
     return await promise;
   }
 
-  private async startPrinterOperation(config: PrinterConfig, startingPrinter: StartingPrinter): Promise<boolean> {
+  private async startPrinterOperation(
+    config: PrinterConfig,
+    startingPrinter: StartingPrinter,
+    failOnCertificateError: boolean = false
+  ): Promise<boolean> {
     if (startingPrinter.cancelled) {
       return false;
     }
@@ -237,6 +246,9 @@ class PrinterManager {
         );
       });
       logger.error({ printerId: config.id, error }, "Failed to start printer");
+      if (failOnCertificateError && isTlsCertificateError(error)) {
+        throw error;
+      }
       return false;
     }
   }
