@@ -6,8 +6,14 @@ import type { PrinterConfig } from "../../types/printer-config";
 import type { Status } from "../../types/printer-status";
 import { getDiscordTagsForStatus, getInitialDiscordTags } from "../../utils/discord-tags.util";
 import BambuLabClient from "../bambu-lab";
-import { getEnabledPrinters, getPrinter } from "../database";
-import { createPrintThread, sendToThread, updateThreadTags } from "../discord/bot";
+import {
+  getActivePrintThread,
+  getEnabledPrinters,
+  getPrinter,
+  removeActivePrintThread,
+  setActivePrintThread
+} from "../database";
+import { createPrintThread, isPrintThreadAvailable, sendToThread, updateThreadTags } from "../discord/bot";
 import {
   printCancelled,
   printFailed,
@@ -27,6 +33,7 @@ interface PrinterInstance {
   config: PrinterConfig;
   lastProgressPercent: number;
   printThreads: Map<string, string>;
+  recoveredThreadId?: string;
   chamberLightTimer?: NodeJS.Timeout;
 }
 
@@ -76,7 +83,8 @@ class PrinterManager {
       client,
       config,
       lastProgressPercent: 0,
-      printThreads: new Map()
+      printThreads: new Map(),
+      recoveredThreadId: getActivePrintThread(printerId)?.threadId
     };
 
     this.setupClientListeners(instance);
@@ -158,6 +166,35 @@ class PrinterManager {
     return `${config.id}:${status.model ?? "unknown"}:${timestamp}`;
   }
 
+  private async createTrackedThread(
+    instance: PrinterInstance,
+    printKey: string,
+    status: Status,
+    result: EmbedResult,
+    tags: string[]
+  ): Promise<string | null> {
+    const title = status.project ?? "Impression";
+    const threadId = await createPrintThread(
+      printKey,
+      title,
+      result.embed,
+      result.files,
+      tags,
+      instance.config.forumChannelId
+    );
+
+    if (threadId) {
+      instance.printThreads.set(printKey, threadId);
+      instance.recoveredThreadId = undefined;
+      if (!setActivePrintThread(instance.config.id, threadId)) {
+        logger.warn({ printKey, threadId }, "Thread created but its recovery state could not be persisted");
+      }
+      logger.info({ printKey, threadId, printer: instance.config.name }, "Thread created and mapped");
+    }
+
+    return threadId;
+  }
+
   /**
    * Met à jour les tags d'un thread
    */
@@ -199,6 +236,14 @@ class PrinterManager {
 
     const printKey = this.getPrintKey(config, newStatus);
 
+    if (
+      oldStatus.state === PrintState.UNKNOWN &&
+      [PrintState.PREPARE, PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(newStatus.state)
+    ) {
+      instance.recoveredThreadId = undefined;
+      removeActivePrintThread(config.id);
+    }
+
     const sendMessage = async (result: EmbedResult): Promise<void> => {
       const threadId = instance.printThreads.get(printKey);
       if (threadId) {
@@ -210,6 +255,39 @@ class PrinterManager {
       // Pas de fallback webhook - on log juste l'erreur
       logger.warn({ printer: config.name, printKey }, "No thread found for print, message not sent");
     };
+
+    // Reattach a persisted thread after a restart, or create one if no previous mapping exists.
+    if (oldStatus.state === PrintState.UNKNOWN && [PrintState.RUNNING, PrintState.PAUSE].includes(newStatus.state)) {
+      instance.lastProgressPercent =
+        Math.trunc((newStatus.progressPercent ?? 0) / NOTIFICATION_PERCENT) * NOTIFICATION_PERCENT;
+
+      if (instance.recoveredThreadId) {
+        if (await isPrintThreadAvailable(instance.recoveredThreadId)) {
+          instance.printThreads.set(printKey, instance.recoveredThreadId);
+          logger.info(
+            { printKey, threadId: instance.recoveredThreadId, printer: config.name },
+            "Recovered active print thread"
+          );
+        } else {
+          removeActivePrintThread(config.id);
+        }
+        instance.recoveredThreadId = undefined;
+      }
+
+      if (!instance.printThreads.has(printKey)) {
+        const result =
+          newStatus.state === PrintState.PAUSE
+            ? await printRecovery(() => instance.client.takeScreenshotWithLight())
+            : printStarted(newStatus);
+        const tags = [...getDiscordTagsForStatus(newStatus), config.name];
+        await this.createTrackedThread(instance, printKey, newStatus, result, tags);
+      } else if (newStatus.state === PrintState.PAUSE) {
+        const result = await printRecovery(() => instance.client.takeScreenshotWithLight());
+        await sendMessage(result);
+        await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.PAUSE);
+      }
+      return;
+    }
 
     // Print started
     if (
@@ -233,23 +311,10 @@ class PrinterManager {
       }
 
       const result = printStarted(newStatus);
-      const title = newStatus.project ?? "Impression";
       const tags = [...getInitialDiscordTags(newStatus.isMulticolor ?? false), config.name];
 
       logger.info({ printKey, tags, printer: config.name }, "Creating new thread for print");
-      const threadId = await createPrintThread(
-        printKey,
-        title,
-        result.embed,
-        result.files,
-        tags,
-        config.forumChannelId
-      );
-
-      if (threadId) {
-        instance.printThreads.set(printKey, threadId);
-        logger.info({ printKey, threadId, printer: config.name }, "Thread created and mapped");
-      }
+      await this.createTrackedThread(instance, printKey, newStatus, result, tags);
       return;
     }
 
@@ -287,6 +352,7 @@ class PrinterManager {
         logger.debug({ printKey, printer: config.name }, "Removing print from active threads mapping");
         instance.printThreads.delete(printKey);
       }
+      removeActivePrintThread(config.id);
 
       // Schedule chamber light turn-off after delay if no new print starts
       logger.info({ printer: config.name, delayMs: CHAMBER_LIGHT_OFF_DELAY_MS }, "Scheduling chamber light turn-off");
@@ -316,22 +382,6 @@ class PrinterManager {
       const result = await printResumed(() => instance.client.takeScreenshotWithLight());
       await sendMessage(result);
       await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.RUNNING);
-      return;
-    }
-
-    // Recovery from power outage
-    if ([PrintState.UNKNOWN].includes(oldStatus.state) && [PrintState.PAUSE].includes(newStatus.state)) {
-      logger.info({ printer: config.name }, "Print recovery");
-      instance.lastProgressPercent = (newStatus.progressPercent % NOTIFICATION_PERCENT) * NOTIFICATION_PERCENT;
-      const result = await printRecovery(() => instance.client.takeScreenshotWithLight());
-      await sendMessage(result);
-      return;
-    }
-
-    // Reconnect to running print
-    if ([PrintState.UNKNOWN].includes(oldStatus.state) && [PrintState.RUNNING].includes(newStatus.state)) {
-      instance.lastProgressPercent =
-        Math.trunc(newStatus.progressPercent / NOTIFICATION_PERCENT) * NOTIFICATION_PERCENT;
       return;
     }
 

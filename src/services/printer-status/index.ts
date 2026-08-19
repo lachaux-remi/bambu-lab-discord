@@ -74,6 +74,12 @@ export default class PrinterStatus {
 
       if (data.gcode_state) {
         newStatus.state = data.gcode_state;
+        if (
+          this.latestStatus.startedAt === undefined &&
+          [PrintState.RUNNING, PrintState.PAUSE].includes(data.gcode_state)
+        ) {
+          newStatus.startedAt = Date.now();
+        }
       }
       // Mettre à jour les informations de progression si elles sont présentes
       // (indépendamment de l'état actuel, car les messages sont incrémentaux)
@@ -113,7 +119,7 @@ export default class PrinterStatus {
         { oldState: oldStatus.state, newState: this.latestStatus.state, changes: Object.keys(newStatus) },
         "Status updated, emitting event"
       );
-      this.client.emit("status", this.latestStatus, oldStatus);
+      await this.client.emitStatus(this.latestStatus, oldStatus);
     } else {
       logger.debug({ changes: Object.keys(newStatus) }, "Non-critical update, skipping event emission");
     }

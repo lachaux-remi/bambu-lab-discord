@@ -212,7 +212,6 @@ dist
 .claude/
 FIXES.md
 nul
-pnpm-workspace.yaml
 
 # Debug logs and images
 *-debug-*.log

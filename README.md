@@ -63,6 +63,9 @@ pnpm install
 # Token du bot Discord (requis)
 DISCORD_BOT_TOKEN=votre_token_bot
 
+# Clé AES-256 utilisée pour chiffrer les codes d'accès dans config/printers.json
+# Génération : openssl rand -base64 32
+CONFIG_ENCRYPTION_KEY=votre_cle_base64_de_32_octets
 
 # Personnalisation des notifications (optionnel)
 NOTIFICATION_PERCENT=5
@@ -95,9 +98,6 @@ Une fois le bot démarré, utilisez ces commandes Discord :
 | `/printer remove <name>`                                    | Supprimer une imprimante               |
 | `/printer list`                                             | Lister les imprimantes configurées     |
 | `/printer edit <name> [options]`                            | Modifier une imprimante                |
-| `/printer start <name>`                                     | Démarrer la connexion à une imprimante |
-| `/printer stop <name>`                                      | Arrêter la connexion                   |
-| `/printer status <name>`                                    | Voir le statut d'une imprimante        |
 
 ### Exemple d'ajout d'imprimante
 
@@ -209,7 +209,10 @@ src/
 
 ## Configuration des imprimantes
 
-Les configurations sont stockées dans `config/printers.json` (créé automatiquement).
+Les configurations sont stockées dans `config/printers.json` (créé automatiquement). Lorsque
+`CONFIG_ENCRYPTION_KEY` est définie, les codes d'accès y sont chiffrés avec AES-256-GCM. Conservez toujours la même clé :
+une configuration chiffrée ne peut pas être chargée sans elle. Les associations des impressions actives avec leurs threads
+Discord sont sauvegardées dans `config/active-threads.json` afin de permettre une reprise après redémarrage.
 Ce fichier contient des données sensibles et est ignoré par Git.
 
 ## Forum Tags

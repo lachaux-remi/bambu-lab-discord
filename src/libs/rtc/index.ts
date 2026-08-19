@@ -5,8 +5,24 @@ import { getLogger } from "../logger";
 const logger = getLogger("RTC");
 
 // JPEG markers
-const JPEG_START = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+const JPEG_START = Buffer.from([0xff, 0xd8]);
 const JPEG_END = Buffer.from([0xff, 0xd9]);
+const MAX_STREAM_BUFFER_SIZE = 20 * 1024 * 1024;
+
+/** Extract the first complete JPEG frame from a camera stream buffer. */
+export const extractJpegFrame = (buffer: Buffer): Buffer | null => {
+  const startIndex = buffer.indexOf(JPEG_START);
+  if (startIndex < 0) {
+    return null;
+  }
+
+  const endIndex = buffer.indexOf(JPEG_END, startIndex + JPEG_START.length);
+  if (endIndex < 0) {
+    return null;
+  }
+
+  return Buffer.from(buffer.subarray(startIndex, endIndex + JPEG_END.length));
+};
 
 /**
  * Build the authentication payload for Bambu Lab camera stream
@@ -51,15 +67,25 @@ export const takeScreenshotFromBambuStream = (
   port: number = 6000
 ): Promise<Buffer | null> => {
   return new Promise(resolve => {
-    const timeout = setTimeout(() => {
-      logger.debug({ ip, port, bufferSize: buffer.length }, "Bambu stream timeout");
-      socket?.destroy();
-      resolve(null);
-    }, 15000);
-
     let socket: tls.TLSSocket | null = null;
     let buffer = Buffer.alloc(0);
-    let foundStart = false;
+    let settled = false;
+
+    const finish = (result: Buffer | null): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+      socket?.destroy();
+      resolve(result);
+    };
+
+    const timeout = setTimeout(() => {
+      logger.debug({ ip, port, bufferSize: buffer.length }, "Bambu stream timeout");
+      finish(null);
+    }, 15000);
 
     try {
       socket = tls.connect(
@@ -77,39 +103,30 @@ export const takeScreenshotFromBambuStream = (
 
       socket.on("data", (chunk: Buffer) => {
         buffer = Buffer.concat([buffer, chunk]);
-
-        if (!foundStart) {
-          const startIdx = buffer.indexOf(JPEG_START);
-          if (startIdx >= 0) {
-            foundStart = true;
-            buffer = buffer.subarray(startIdx);
-          }
+        if (buffer.length > MAX_STREAM_BUFFER_SIZE) {
+          logger.debug({ ip, bufferSize: buffer.length }, "Bambu stream frame exceeded maximum size");
+          finish(null);
           return;
         }
 
-        const endIdx = buffer.indexOf(JPEG_END);
-        if (endIdx >= 0) {
-          const image = buffer.subarray(0, endIdx + JPEG_END.length);
-          clearTimeout(timeout);
-          socket?.destroy();
+        const image = extractJpegFrame(buffer);
+        if (image) {
           logger.debug({ ip, size: image.length }, "Captured frame from Bambu stream");
-          resolve(image);
+          finish(image);
         }
       });
 
       socket.on("error", (error: Error) => {
-        clearTimeout(timeout);
         logger.debug({ ip, error: error.message }, "Bambu stream error");
-        resolve(null);
+        finish(null);
       });
 
       socket.on("close", () => {
-        clearTimeout(timeout);
+        finish(null);
       });
     } catch (error) {
-      clearTimeout(timeout);
       logger.debug({ ip, error: (error as Error).message }, "Failed to connect to Bambu stream");
-      resolve(null);
+      finish(null);
     }
   });
 };

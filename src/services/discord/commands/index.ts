@@ -1,4 +1,4 @@
-import { REST, Routes, SlashCommandBuilder } from "discord.js";
+import { PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 
 import { DISCORD_BOT_TOKEN } from "../../../constants";
 import { getLogger } from "../../../libs/logger";
@@ -14,6 +14,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("printer")
     .setDescription("Gérer les imprimantes")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand(sub =>
       sub
         .setName("add")
@@ -103,6 +104,14 @@ export const setupCommandHandlers = (): void => {
       return;
     }
 
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+      await interaction.reply({
+        content: "❌ Vous devez avoir la permission **Gérer le serveur** pour utiliser cette commande.",
+        ephemeral: true
+      });
+      return;
+    }
+
     const subcommand = interaction.options.getSubcommand();
 
     try {
@@ -137,6 +146,11 @@ export const setupCommandHandlers = (): void => {
     }
 
     if (interaction.commandName !== "printer") {
+      return;
+    }
+
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+      await interaction.respond([]);
       return;
     }
 

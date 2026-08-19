@@ -23,6 +23,7 @@ export default class BambuLabClient extends EventEmitter {
 
   private lastMqttErrorLoggedAt?: number;
   private chamberLightOn: boolean = false;
+  private messageQueue: Promise<void> = Promise.resolve();
 
   public constructor(config: PrinterConfig) {
     super();
@@ -61,44 +62,88 @@ export default class BambuLabClient extends EventEmitter {
     return this;
   }
 
+  public async emitStatus(...arguments_: ClientEvents["status"]): Promise<void> {
+    for (const listener of this.listeners("status")) {
+      await (listener as (...listenerArguments: ClientEvents["status"]) => void | Promise<void>)(...arguments_);
+    }
+  }
+
   public connect(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       logger.info({ printer: this.config.name, ip: this.config.ip }, "Connecting to printer...");
 
-      this.mqttClient = connect(this.brokerAddress, {
+      const mqttClient = connect(this.brokerAddress, {
         username: "bblp",
         password: this.config.accessCode,
-        reconnectPeriod: 1,
+        reconnectPeriod: 5000,
         rejectUnauthorized: false
       });
+      this.mqttClient = mqttClient;
+      let initialConnectionSettled = false;
 
-      this.mqttClient.on("connect", () => {
+      const failInitialConnection = (error: Error): void => {
+        if (initialConnectionSettled) {
+          logger.error({ printer: this.config.name, message: error.message }, "Failed to initialize MQTT session");
+          mqttClient.reconnect();
+          return;
+        }
+
+        initialConnectionSettled = true;
+        mqttClient.end(true);
+        if (this.mqttClient === mqttClient) {
+          this.mqttClient = undefined;
+        }
+        reject(error);
+      };
+
+      mqttClient.on("connect", () => {
         logger.info({ printer: this.config.name }, "Connected to printer");
 
-        this.mqttClient?.subscribe(this.topicReport);
-        this.mqttClient?.publish(
-          this.topicRequest,
-          JSON.stringify({
-            pushing: {
-              sequence_id: "1",
-              command: "pushall"
-            },
-            user_id: 123_456_789
-          })
-        );
-        resolve();
+        mqttClient.subscribe(this.topicReport, error => {
+          if (error) {
+            failInitialConnection(error);
+            return;
+          }
+
+          mqttClient.publish(
+            this.topicRequest,
+            JSON.stringify({
+              pushing: {
+                sequence_id: "1",
+                command: "pushall"
+              },
+              user_id: 123_456_789
+            }),
+            publishError => {
+              if (publishError) {
+                failInitialConnection(publishError);
+                return;
+              }
+
+              if (!initialConnectionSettled) {
+                initialConnectionSettled = true;
+                resolve();
+              }
+            }
+          );
+        });
       });
-      this.mqttClient.on("disconnect", packet => {
+      mqttClient.on("disconnect", packet => {
         logger.debug({ printer: this.config.name, reasonCode: packet.reasonCode }, "Disconnected from printer");
       });
-      this.mqttClient.on("message", (receivedTopic: string, payload: Buffer) => {
+      mqttClient.on("message", (receivedTopic: string, payload: Buffer) => {
         if (receivedTopic !== this.topicReport) {
           return;
         }
 
-        this.onMessage(payload.toString()).catch(() => true);
+        const packet = payload.toString();
+        this.messageQueue = this.messageQueue
+          .then(() => this.onMessage(packet))
+          .catch(error => {
+            logger.error({ printer: this.config.name, error }, "Failed to process MQTT message");
+          });
       });
-      this.mqttClient.on("error", error => {
+      mqttClient.on("error", error => {
         const now = Date.now();
         if (!this.lastMqttErrorLoggedAt || now - this.lastMqttErrorLoggedAt >= ERROR_LOG_COOLDOWN_MS) {
           logger.error(
@@ -107,7 +152,9 @@ export default class BambuLabClient extends EventEmitter {
           );
           this.lastMqttErrorLoggedAt = now;
         }
-        reject(error);
+        if (!initialConnectionSettled) {
+          failInitialConnection(error);
+        }
       });
     });
   }
@@ -194,14 +241,14 @@ export default class BambuLabClient extends EventEmitter {
       await new Promise(resolve => setTimeout(resolve, CHAMBER_LIGHT_WARMUP_MS));
     }
 
-    const screenshot = await takeScreenshot(this.config.ip, this.config.accessCode, this.config.rtcPort);
-
-    if (!wasLightOn) {
-      logger.debug({ printer: this.config.name }, "Turning off chamber light after screenshot");
-      this.turnOffChamberLight();
+    try {
+      return await takeScreenshot(this.config.ip, this.config.accessCode, this.config.rtcPort);
+    } finally {
+      if (!wasLightOn) {
+        logger.debug({ printer: this.config.name }, "Turning off chamber light after screenshot");
+        this.turnOffChamberLight();
+      }
     }
-
-    return screenshot;
   }
 
   public isConnected(): boolean {
@@ -209,13 +256,20 @@ export default class BambuLabClient extends EventEmitter {
   }
 
   protected async onMessage(packet: string): Promise<void> {
-    let data: Record<string, unknown>;
+    let parsedData: unknown;
     try {
-      data = JSON.parse(packet);
+      parsedData = JSON.parse(packet);
     } catch (error) {
       logger.error({ error, packetLength: packet.length }, "Failed to parse MQTT message");
       return;
     }
+
+    if (!parsedData || typeof parsedData !== "object" || Array.isArray(parsedData)) {
+      logger.warn({ packetLength: packet.length }, "MQTT message must contain a JSON object");
+      return;
+    }
+
+    const data = parsedData as Record<string, unknown>;
 
     const key = Object.keys(data)[0];
 
@@ -234,7 +288,7 @@ export default class BambuLabClient extends EventEmitter {
 
     if (this.isPrintMessage(data)) {
       logger.debug({ command: data.print.command }, "Processing print message");
-      this.printerStatus?.onUpdate(data.print);
+      await this.printerStatus?.onUpdate(data.print);
     } else {
       logger.debug({ keys: Object.keys(data), hasprint: !!data.print }, "Message not recognized as print message");
     }

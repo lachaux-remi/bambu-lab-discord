@@ -2,6 +2,7 @@ import { ChannelType, ChatInputCommandInteraction } from "discord.js";
 
 import { getLogger } from "../../../libs/logger";
 import { getPrinter, updatePrinter } from "../../database";
+import { printerManager } from "../../printer-manager";
 import { ensurePrinterTag } from "../bot";
 
 const logger = getLogger("PrinterEdit");
@@ -17,6 +18,7 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
     });
     return;
   }
+  const wasRunning = printerManager.getPrinterStatus(printerId).running;
 
   const newName = interaction.options.getString("new_name");
   const ip = interaction.options.getString("ip");
@@ -83,6 +85,13 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   // Si le channel a changé, créer le tag dans le nouveau forum
   if (channel) {
     await ensurePrinterTag(channel.id, newName ?? printer.name);
+  }
+
+  if (wasRunning && !(await printerManager.restartPrinter(printerId))) {
+    await interaction.editReply(
+      `⚠️ Imprimante **${newName ?? printer.name}** mise à jour, mais sa reconnexion a échoué. Vérifiez sa configuration et sa disponibilité.`
+    );
+    return;
   }
 
   await interaction.editReply(

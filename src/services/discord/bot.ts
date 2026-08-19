@@ -18,8 +18,27 @@ let client: Client | null = null;
 
 // Cache des forum channels déjà récupérés
 const forumChannelCache: Map<string, ForumChannel> = new Map();
+const forumMutationQueues: Map<string, Promise<void>> = new Map();
 
 const normalizeTagName = (n: string) => n.trim().toLowerCase();
+
+const queueForumMutation = async <T>(forumChannelId: string, mutation: () => Promise<T>): Promise<T> => {
+  const previousMutation = forumMutationQueues.get(forumChannelId) ?? Promise.resolve();
+  const operation = previousMutation.then(mutation, mutation);
+  const queueTail = operation.then(
+    () => undefined,
+    () => undefined
+  );
+  forumMutationQueues.set(forumChannelId, queueTail);
+
+  try {
+    return await operation;
+  } finally {
+    if (forumMutationQueues.get(forumChannelId) === queueTail) {
+      forumMutationQueues.delete(forumChannelId);
+    }
+  }
+};
 
 /**
  * Récupère les IDs des tags pour un forum donné
@@ -71,7 +90,7 @@ const getForumChannel = async (channelId: string): Promise<ForumChannel | null> 
 /**
  * S'assure que les tags de base existent dans un forum
  */
-export const ensureForumTags = async (forumChannelId: string): Promise<{ created: string[]; removed: string[] }> => {
+const ensureForumTagsUnlocked = async (forumChannelId: string): Promise<{ created: string[]; removed: string[] }> => {
   const forum = await getForumChannel(forumChannelId);
   if (!forum) {
     return { created: [], removed: [] };
@@ -81,14 +100,18 @@ export const ensureForumTags = async (forumChannelId: string): Promise<{ created
     logger.info({ channelId: forumChannelId }, "🏷️  Synchronizing forum tags...");
 
     const existing = forum.availableTags ?? [];
+    const existingByName = new Map(existing.map(tag => [normalizeTagName(tag.name ?? ""), tag]));
 
     // Build desired payload with base tags
-    const desiredPayload: ForumTagPayload[] = FORUM_TAG_DEFINITIONS.map(d => ({
-      id: undefined,
-      name: d.name,
-      moderated: true,
-      emoji: { id: null, name: d.emoji }
-    }));
+    const desiredPayload: ForumTagPayload[] = FORUM_TAG_DEFINITIONS.map(d => {
+      const existingTag = existingByName.get(normalizeTagName(d.name));
+      return {
+        id: existingTag?.id,
+        name: d.name,
+        moderated: true,
+        emoji: { id: null, name: d.emoji }
+      };
+    });
 
     // Keep existing printer tags (not in FORUM_TAG_DEFINITIONS)
     const baseTagNames = new Set(FORUM_TAG_DEFINITIONS.map(d => normalizeTagName(d.name)));
@@ -126,10 +149,17 @@ export const ensureForumTags = async (forumChannelId: string): Promise<{ created
   }
 };
 
+export const ensureForumTags = async (forumChannelId: string): Promise<{ created: string[]; removed: string[] }> => {
+  return queueForumMutation(forumChannelId, async () => {
+    forumChannelCache.delete(forumChannelId);
+    return ensureForumTagsUnlocked(forumChannelId);
+  });
+};
+
 /**
  * Ajoute un tag d'imprimante à un forum
  */
-export const ensurePrinterTag = async (forumChannelId: string, printerName: string): Promise<boolean> => {
+const ensurePrinterTagUnlocked = async (forumChannelId: string, printerName: string): Promise<boolean> => {
   const forum = await getForumChannel(forumChannelId);
   if (!forum) {
     return false;
@@ -170,6 +200,13 @@ export const ensurePrinterTag = async (forumChannelId: string, printerName: stri
     logger.error({ error, printerName }, "Failed to create printer tag");
     return false;
   }
+};
+
+export const ensurePrinterTag = async (forumChannelId: string, printerName: string): Promise<boolean> => {
+  return queueForumMutation(forumChannelId, async () => {
+    forumChannelCache.delete(forumChannelId);
+    return ensurePrinterTagUnlocked(forumChannelId, printerName);
+  });
 };
 
 /**
@@ -245,6 +282,20 @@ export const createPrintThread = async (
   } catch (error) {
     logger.error({ error }, "Failed to create thread");
     return null;
+  }
+};
+
+export const isPrintThreadAvailable = async (threadId: string): Promise<boolean> => {
+  if (!client) {
+    return false;
+  }
+
+  try {
+    const channel = await client.channels.fetch(threadId);
+    return !!channel?.isThread();
+  } catch (error) {
+    logger.warn({ error, threadId }, "Persisted print thread is no longer available");
+    return false;
   }
 };
 
