@@ -21,6 +21,24 @@ const printerInput: Omit<PrinterConfig, "id" | "createdAt" | "updatedAt"> = {
   enabled: true
 };
 
+const writePlaintextPrinterConfig = (): void => {
+  writeFileSync(
+    join(workingDirectory, "config", "printers.json"),
+    JSON.stringify({
+      version: 1,
+      printers: {
+        "p1s-bureau": {
+          ...printerInput,
+          id: "p1s-bureau",
+          createdAt: 1_000,
+          updatedAt: 1_000
+        }
+      }
+    }),
+    "utf8"
+  );
+};
+
 describe.sequential("configuration persistence", () => {
   beforeEach(() => {
     workingDirectory = mkdtempSync(join(tmpdir(), "bambu-config-"));
@@ -50,9 +68,17 @@ describe.sequential("configuration persistence", () => {
     });
   });
 
+  it("rejects a malformed encryption key even when it decodes to 32 bytes", async () => {
+    process.env.CONFIG_ENCRYPTION_KEY = `${randomBytes(32).toString("base64")}!!!!`;
+    const database = await import("../src/services/database");
+
+    expect(() => database.loadConfig()).toThrow("CONFIG_ENCRYPTION_KEY must be a base64-encoded 32-byte key");
+  });
+
   it("supports the complete printer CRUD lifecycle", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
+    process.env.CONFIG_ENCRYPTION_KEY = randomBytes(32).toString("base64");
     const database = await import("../src/services/database");
 
     const added = database.addPrinter(printerInput);
@@ -91,6 +117,64 @@ describe.sequential("configuration persistence", () => {
 
     database.reloadConfig();
     expect(database.getPrinter("p1s-bureau")?.accessCode).toBe("secret");
+  });
+
+  it("migrates plaintext access codes when an encryption key is configured", async () => {
+    const database = await import("../src/services/database");
+    database.loadConfig();
+    writePlaintextPrinterConfig();
+    process.env.CONFIG_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+
+    expect(database.loadConfig().printers["p1s-bureau"].accessCode).toBe("secret");
+
+    const persisted = JSON.parse(readFileSync(join(workingDirectory, "config", "printers.json"), "utf8"));
+    expect(persisted.printers["p1s-bureau"].accessCode).toMatch(/^enc:v1:/);
+    expect(persisted.printers["p1s-bureau"].accessCode).not.toContain("secret");
+  });
+
+  it("preserves existing ciphertext while migrating a mixed configuration", async () => {
+    process.env.CONFIG_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+    const database = await import("../src/services/database");
+    database.addPrinter(printerInput);
+    const configPath = join(workingDirectory, "config", "printers.json");
+    const beforeMigration = JSON.parse(readFileSync(configPath, "utf8"));
+    const existingCiphertext = beforeMigration.printers["p1s-bureau"].accessCode;
+    beforeMigration.printers["x1-carbon"] = {
+      ...printerInput,
+      id: "x1-carbon",
+      name: "X1 Carbon",
+      serial: "SECOND-SERIAL",
+      accessCode: "second-secret",
+      createdAt: 2_000,
+      updatedAt: 2_000
+    };
+    writeFileSync(configPath, JSON.stringify(beforeMigration), "utf8");
+
+    database.loadConfig();
+
+    const afterMigration = JSON.parse(readFileSync(configPath, "utf8"));
+    expect(afterMigration.printers["p1s-bureau"].accessCode).toBe(existingCiphertext);
+    expect(afterMigration.printers["x1-carbon"].accessCode).toMatch(/^enc:v1:/);
+    expect(afterMigration.printers["x1-carbon"].accessCode).not.toContain("second-secret");
+  });
+
+  it("refuses to load printer access codes without an encryption key", async () => {
+    const database = await import("../src/services/database");
+    database.loadConfig();
+    writePlaintextPrinterConfig();
+
+    expect(() => database.loadConfig()).toThrow("CONFIG_ENCRYPTION_KEY is required when printers are configured");
+  });
+
+  it("refuses to persist printer access codes without an encryption key", async () => {
+    const database = await import("../src/services/database");
+
+    expect(database.addPrinter(printerInput)).toBeNull();
+    expect(database.getAllPrinters()).toEqual([]);
+    expect(JSON.parse(readFileSync(join(workingDirectory, "config", "printers.json"), "utf8"))).toEqual({
+      version: 1,
+      printers: {}
+    });
   });
 
   it("persists and removes active print thread recovery state", async () => {
