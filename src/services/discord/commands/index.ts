@@ -1,4 +1,4 @@
-import { PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
+import { MessageFlags, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 
 import { DISCORD_BOT_TOKEN } from "../../../constants";
 import { getLogger } from "../../../libs/logger";
@@ -7,6 +7,7 @@ import { handlePrinterAdd } from "./printer-add";
 import { handlePrinterEdit } from "./printer-edit";
 import { handlePrinterList } from "./printer-list";
 import { handlePrinterRemove } from "./printer-remove";
+import { handlePrinterScreenshot } from "./printer-screenshot";
 
 const logger = getLogger("DiscordCommands");
 
@@ -40,6 +41,14 @@ const commands = [
         )
     )
     .addSubcommand(sub => sub.setName("list").setDescription("Lister toutes les imprimantes"))
+    .addSubcommand(sub =>
+      sub
+        .setName("screenshot")
+        .setDescription("Créer une notification publique avec une capture caméra")
+        .addStringOption(opt =>
+          opt.setName("name").setDescription("Nom de l'imprimante").setRequired(true).setAutocomplete(true)
+        )
+    )
     .addSubcommand(sub =>
       sub
         .setName("edit")
@@ -106,7 +115,7 @@ export const setupCommandHandlers = (): void => {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
       await interaction.reply({
         content: "❌ Vous devez avoir la permission **Gérer le serveur** pour utiliser cette commande.",
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -127,13 +136,16 @@ export const setupCommandHandlers = (): void => {
         case "edit":
           await handlePrinterEdit(interaction);
           break;
+        case "screenshot":
+          await handlePrinterScreenshot(interaction);
+          break;
         default:
-          await interaction.reply({ content: "Commande inconnue", ephemeral: true });
+          await interaction.reply({ content: "Commande inconnue", flags: MessageFlags.Ephemeral });
       }
     } catch (error) {
       logger.error({ error, subcommand }, "Error handling command");
       if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: "Une erreur est survenue", ephemeral: true });
+        await interaction.reply({ content: "Une erreur est survenue", flags: MessageFlags.Ephemeral });
       }
     }
   });

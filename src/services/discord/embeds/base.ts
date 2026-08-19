@@ -13,7 +13,7 @@ export const createBaseEmbed = (): EmbedBuilder => {
     .setColor(NOTIFICATION_COLOR)
     .setFooter({
       text: NOTIFICATION_FOOTER_TEXT,
-      iconURL: NOTIFICATION_FOOTER_ICON
+      ...(NOTIFICATION_FOOTER_ICON ? { iconURL: NOTIFICATION_FOOTER_ICON } : {})
     })
     .setTimestamp(new Date());
 };

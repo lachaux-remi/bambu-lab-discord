@@ -362,6 +362,15 @@ class PrinterManager {
     };
   }
 
+  public async takeScreenshot(printerId: string): Promise<Buffer | null> {
+    const instance = this.printers.get(printerId);
+    if (!instance?.client.isConnected()) {
+      return null;
+    }
+
+    return await instance.client.takeScreenshotWithLight();
+  }
+
   /**
    * Liste toutes les imprimantes en cours d'exécution
    */

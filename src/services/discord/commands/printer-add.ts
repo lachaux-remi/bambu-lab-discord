@@ -1,4 +1,4 @@
-import { ChannelType, ChatInputCommandInteraction } from "discord.js";
+import { ChannelType, ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
 import { getLogger } from "../../../libs/logger";
 import { addPrinter } from "../../database";
@@ -20,12 +20,12 @@ export const handlePrinterAdd = async (interaction: ChatInputCommandInteraction)
   if (channel.type !== ChannelType.GuildForum) {
     await interaction.reply({
       content: "❌ Le channel doit être un **forum channel**",
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   // Ajouter l'imprimante à la base de données
   const printer = addPrinter({

@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, EmbedBuilder } from "discord.js";
+import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from "discord.js";
 
 import { getAllPrinters } from "../../database";
 import { printerManager } from "../../printer-manager";
@@ -9,7 +9,7 @@ export const handlePrinterList = async (interaction: ChatInputCommandInteraction
   if (printers.length === 0) {
     await interaction.reply({
       content: "📭 Aucune imprimante configurée\n\nUtilisez `/printer add` pour en ajouter une",
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -32,5 +32,5 @@ export const handlePrinterList = async (interaction: ChatInputCommandInteraction
     });
   }
 
-  await interaction.reply({ embeds: [embed], ephemeral: true });
+  await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 };
