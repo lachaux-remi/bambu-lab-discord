@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.2](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.2.1...v2.2.2) (2026-08-19)
+
+
+### Bug Fixes
+
+* authenticate release pull requests ([#28](https://github.com/lachaux-remi/bambu-lab-discord/issues/28)) ([f410839](https://github.com/lachaux-remi/bambu-lab-discord/commit/f4108398489708babb2c06cc1827e7283eb0bc9e))
+
 ## [2.2.1](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.2.0...v2.2.1) (2026-08-19)
 
 
