@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+node_version="24.15.0"
+pnpm_version="11.0.9"
+node_home="$HOME/.local/share/node-v$node_version"
+
+run_step() {
+  local label="$1"
+  shift
+  echo "==> $label"
+  time "$@"
+}
+
+install_node() (
+  local architecture archive download_url temporary_archive
+
+  case "$(uname -m)" in
+    x86_64) architecture="x64" ;;
+    aarch64 | arm64) architecture="arm64" ;;
+    *) echo "Unsupported architecture: $(uname -m)" >&2; return 1 ;;
+  esac
+
+  archive="node-v$node_version-linux-$architecture.tar.xz"
+  download_url="https://nodejs.org/dist/v$node_version/$archive"
+  temporary_archive="$(mktemp)"
+  trap 'rm -f "$temporary_archive"' EXIT
+
+  curl --fail --location --silent --show-error "$download_url" --output "$temporary_archive"
+  rm -rf "$node_home"
+  mkdir -p "$node_home"
+  tar -xJf "$temporary_archive" --strip-components=1 -C "$node_home"
+)
+
+mkdir -p "$HOME/.local/bin" "$HOME/.local/share"
+
+if [[ ! -x "$node_home/bin/node" ]] || [[ "$($node_home/bin/node --version)" != "v$node_version" ]]; then
+  run_step "Installing Node.js $node_version" install_node
+else
+  echo "==> Node.js $node_version is already installed"
+fi
+
+export PATH="$node_home/bin:$HOME/.local/bin:$PATH"
+
+if [[ ! -x "$node_home/bin/pnpm" ]] || [[ "$($node_home/bin/pnpm --version)" != "$pnpm_version" ]]; then
+  run_step "Installing pnpm $pnpm_version" npm install --global "pnpm@$pnpm_version"
+else
+  echo "==> pnpm $pnpm_version is already installed"
+fi
+
+for executable in node npm npx pnpm pnpx; do
+  if [[ -e "$node_home/bin/$executable" ]]; then
+    ln -sfn "$node_home/bin/$executable" "$HOME/.local/bin/$executable"
+  fi
+done
+
+profile_marker="# bambu-lab-discord user-local toolchain"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  cat >> "$HOME/.bash_profile" <<'EOF'
+
+# bambu-lab-discord user-local toolchain
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+EOF
+fi
+
+run_step "Installing project dependencies" pnpm --dir "$repo_root" install --frozen-lockfile --ignore-scripts
+
+echo "==> Orb setup complete"

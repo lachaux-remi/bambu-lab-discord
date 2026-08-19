@@ -221,3 +221,5 @@ pnpm-workspace.yaml
 # Printer configuration (contains sensitive data)
 config/
 
+# Amp orb portal metadata
+.amp/portals/*
