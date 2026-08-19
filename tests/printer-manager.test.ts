@@ -12,11 +12,14 @@ const mocks = vi.hoisted(() => {
     isConnected: ReturnType<typeof vi.fn>;
     emitStatus: (newStatus: Status, oldStatus: Status) => Promise<void>;
   }> = [];
+  const state: { nextConnectionError?: Error } = {};
 
   const Client = vi.fn(function () {
     let statusListener: StatusListener | undefined;
+    const connectionError = state.nextConnectionError;
+    state.nextConnectionError = undefined;
     const client = {
-      connect: vi.fn().mockResolvedValue(undefined),
+      connect: connectionError ? vi.fn().mockRejectedValue(connectionError) : vi.fn().mockResolvedValue(undefined),
       disconnect: vi.fn().mockResolvedValue(undefined),
       isConnected: vi.fn().mockReturnValue(true),
       on: vi.fn((_event: string, listener: StatusListener) => {
@@ -36,6 +39,7 @@ const mocks = vi.hoisted(() => {
   return {
     Client,
     clients,
+    state,
     getPrinter: vi.fn(),
     getEnabledPrinters: vi.fn(),
     getActivePrintThread: vi.fn(),
@@ -112,6 +116,7 @@ describe("PrinterManager public seam", () => {
     vi.resetModules();
     vi.clearAllMocks();
     mocks.clients.length = 0;
+    mocks.state.nextConnectionError = undefined;
     mocks.getPrinter.mockReturnValue(config);
     mocks.getEnabledPrinters.mockReturnValue([]);
     mocks.getActivePrintThread.mockReturnValue(null);
@@ -148,19 +153,7 @@ describe("PrinterManager public seam", () => {
   });
 
   it("does not retain ownership after connection failure and permits a retry", async () => {
-    mocks.Client.mockImplementationOnce(function () {
-      const failedClient = {
-        connect: vi.fn().mockRejectedValue(new Error("offline")),
-        disconnect: vi.fn(),
-        isConnected: vi.fn().mockReturnValue(false),
-        on: vi.fn().mockReturnThis(),
-        emitStatus: vi.fn(),
-        takeScreenshotWithLight: vi.fn(),
-        turnOffChamberLight: vi.fn()
-      };
-      mocks.clients.push(failedClient);
-      return failedClient;
-    });
+    mocks.state.nextConnectionError = new Error("offline");
     const { printerManager } = await import("../src/services/printer-manager");
 
     await expect(printerManager.startPrinter(config.id)).resolves.toBe(false);
@@ -184,6 +177,40 @@ describe("PrinterManager public seam", () => {
     await expect(restart).resolves.toBe(true);
     expect(mocks.Client).toHaveBeenCalledTimes(2);
     expect(mocks.clients[1].connect).toHaveBeenCalledOnce();
+  });
+
+  it("reports an unknown printer as already stopped", async () => {
+    const { printerManager } = await import("../src/services/printer-manager");
+
+    await expect(printerManager.stopPrinter("missing")).resolves.toBe(false);
+  });
+
+  it("waits for every disconnect before reporting stopAll failures", async () => {
+    mocks.getPrinter.mockImplementation((id: string) => ({ ...config, id }));
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter("printer-1");
+    await printerManager.startPrinter("printer-2");
+    mocks.clients[0].disconnect.mockRejectedValue(new Error("disconnect failed"));
+    let finishSecondDisconnect: (() => void) | undefined;
+    mocks.clients[1].disconnect.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishSecondDisconnect = resolve;
+        })
+    );
+
+    let shutdownSettled = false;
+    const shutdown = printerManager.stopAll().finally(() => {
+      shutdownSettled = true;
+    });
+    await Promise.resolve();
+
+    expect(shutdownSettled).toBe(false);
+    expect(mocks.clients[0].disconnect).toHaveBeenCalledOnce();
+    expect(mocks.clients[1].disconnect).toHaveBeenCalledOnce();
+    finishSecondDisconnect?.();
+    await expect(shutdown).rejects.toThrow("Failed to stop all printers");
+    expect(printerManager.getRunningPrinters()).toEqual([]);
   });
 
   it("reattaches an available persisted thread and removes its recovery record when the print ends", async () => {

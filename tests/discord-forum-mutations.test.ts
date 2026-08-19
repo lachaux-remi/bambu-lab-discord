@@ -31,16 +31,22 @@ describe.sequential("Discord forum mutation serialization", () => {
 
   it("serializes ensureForumTags and ensurePrinterTag edits for the same forum", async () => {
     const edits: Array<() => void> = [];
+    const editPayloads: Array<{ availableTags: Array<{ id?: string; name: string }> }> = [];
     let activeEdits = 0;
     let maximumActiveEdits = 0;
     const forum = {
       type: 15,
-      availableTags: [],
-      edit: vi.fn(() => {
+      availableTags: [] as Array<{ id: string; name: string }>,
+      edit: vi.fn((payload: { availableTags: Array<{ id?: string; name: string }> }) => {
+        editPayloads.push(payload);
         activeEdits += 1;
         maximumActiveEdits = Math.max(maximumActiveEdits, activeEdits);
         return new Promise<void>(resolve => {
           edits.push(() => {
+            forum.availableTags = payload.availableTags.map((tag, index) => ({
+              id: tag.id ?? `tag-${index}`,
+              name: tag.name
+            }));
             activeEdits -= 1;
             resolve();
           });
@@ -61,6 +67,16 @@ describe.sequential("Discord forum mutation serialization", () => {
     await vi.waitFor(() => expect(forum.edit).toHaveBeenCalledTimes(2));
     expect(discord.fetch).toHaveBeenCalledTimes(2);
     expect(maximumActiveEdits).toBe(1);
+    expect(editPayloads[1].availableTags.map(tag => tag.name)).toEqual([
+      "En cours",
+      "Réussi",
+      "Échoué",
+      "En pause",
+      "Attention",
+      "Multicolore",
+      "Monocolor",
+      "Workshop P1S"
+    ]);
 
     edits.shift()?.();
     await expect(Promise.all([baseTags, printerTag])).resolves.toEqual([
