@@ -26,9 +26,12 @@ describe("PrinterStatus", () => {
 
     await status.onUpdate({
       command: MessageCommand.PROJECT_FILE,
+      subtask_id: "subtask-1",
+      task_id: 42,
       model_id: "model-1",
+      gcode_file: "Metadata/plate_1.gcode",
       subtask_name: "calibration cube",
-      plate_idx: "1",
+      plate_idx: 1,
       ams_mapping: [0, 2]
     });
 
@@ -39,7 +42,10 @@ describe("PrinterStatus", () => {
       state: PrintState.PREPARE,
       model: "model-1",
       project: "calibration cube",
-      plate: "1",
+      subtaskId: "subtask-1",
+      taskId: "42",
+      gcodeFile: "Metadata/plate_1.gcode",
+      plate: 1,
       isMulticolor: true,
       currentLayer: 0,
       maxLayers: 0,
@@ -56,7 +62,11 @@ describe("PrinterStatus", () => {
 
     await status.onUpdate({
       command: MessageCommand.PUSH_STATUS,
+      subtask_id: "cloud-subtask",
+      task_id: "cloud-task",
       subtask_name: "benchy",
+      gcode_file: "benchy.gcode.3mf",
+      plate_idx: 2,
       gcode_state: PrintState.RUNNING,
       layer_num: 4,
       total_layer_num: 100,
@@ -74,6 +84,10 @@ describe("PrinterStatus", () => {
     expect(listener.mock.calls[1][0]).toMatchObject({
       state: PrintState.PAUSE,
       project: "benchy",
+      subtaskId: "cloud-subtask",
+      taskId: "cloud-task",
+      gcodeFile: "benchy.gcode.3mf",
+      plate: 2,
       currentLayer: 5,
       maxLayers: 100,
       progressPercent: 10,
@@ -83,6 +97,38 @@ describe("PrinterStatus", () => {
       state: PrintState.RUNNING,
       currentLayer: 4,
       progressPercent: 8
+    });
+  });
+
+  it("does not treat zero or empty MQTT identifiers as print IDs", async () => {
+    const listener = vi.fn();
+    client.on("status", listener);
+
+    await status.onUpdate({
+      command: MessageCommand.PROJECT_FILE,
+      subtask_id: "cloud-subtask",
+      task_id: "cloud-task",
+      subtask_name: "Cloud Benchy",
+      gcode_file: "cloud-benchy.gcode.3mf",
+      plate_idx: 1
+    });
+    await status.onUpdate({
+      command: MessageCommand.PUSH_STATUS,
+      subtask_id: "0",
+      task_id: "  ",
+      subtask_name: "LAN Benchy",
+      gcode_file: "",
+      plate_idx: 0,
+      gcode_state: PrintState.RUNNING
+    });
+
+    const [newStatus] = listener.mock.calls[1];
+    expect(newStatus.subtaskId).toBeUndefined();
+    expect(newStatus.taskId).toBeUndefined();
+    expect(newStatus.gcodeFile).toBeUndefined();
+    expect(newStatus).toMatchObject({
+      project: "LAN Benchy",
+      plate: 0
     });
   });
 

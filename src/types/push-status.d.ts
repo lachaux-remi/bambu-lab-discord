@@ -1,5 +1,5 @@
 import type { MessageCommand, PrintState } from "../enums";
-import type { IntRange } from "./general";
+import type { IntRange, StringNumber } from "./general";
 import type { PrintMessageCommand } from "./printer-messages";
 
 export interface LightReport {
@@ -9,7 +9,11 @@ export interface LightReport {
 
 export interface PushStatusCommand extends PrintMessageCommand {
   command: MessageCommand.PUSH_STATUS;
+  subtask_id?: string | number;
+  task_id?: string | number;
   subtask_name?: string;
+  gcode_file?: string;
+  plate_idx?: StringNumber | number;
   gcode_state?: PrintState;
   layer_num?: number;
   total_layer_num?: number;

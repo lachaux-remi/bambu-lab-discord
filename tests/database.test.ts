@@ -1,10 +1,48 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PrinterConfig } from "../src/types/printer-config";
+
+const fsTracking = vi.hoisted(() => ({
+  descriptorPaths: new Map<number, string>(),
+  directoryFsyncError: undefined as NodeJS.ErrnoException | undefined,
+  events: [] as Array<{ operation: "close" | "fsync" | "open" | "rename"; path: string }>
+}));
+
+vi.mock("fs", async () => {
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  return {
+    ...actual,
+    openSync: (...arguments_: Parameters<typeof actual.openSync>) => {
+      const descriptor = actual.openSync(...arguments_);
+      const path = String(arguments_[0]);
+      fsTracking.descriptorPaths.set(descriptor, path);
+      fsTracking.events.push({ operation: "open", path });
+      return descriptor;
+    },
+    fsyncSync: (descriptor: number) => {
+      const path = fsTracking.descriptorPaths.get(descriptor) ?? "unknown";
+      fsTracking.events.push({ operation: "fsync", path });
+      if (fsTracking.directoryFsyncError && path.endsWith("/config")) {
+        throw fsTracking.directoryFsyncError;
+      }
+      actual.fsyncSync(descriptor);
+    },
+    closeSync: (descriptor: number) => {
+      const path = fsTracking.descriptorPaths.get(descriptor) ?? "unknown";
+      fsTracking.events.push({ operation: "close", path });
+      fsTracking.descriptorPaths.delete(descriptor);
+      actual.closeSync(descriptor);
+    },
+    renameSync: (...arguments_: Parameters<typeof actual.renameSync>) => {
+      fsTracking.events.push({ operation: "rename", path: String(arguments_[1]) });
+      actual.renameSync(...arguments_);
+    }
+  };
+});
 
 const originalWorkingDirectory = process.cwd();
 const originalEncryptionKey = process.env.CONFIG_ENCRYPTION_KEY;
@@ -44,6 +82,9 @@ describe.sequential("configuration persistence", () => {
     workingDirectory = mkdtempSync(join(tmpdir(), "bambu-config-"));
     process.chdir(workingDirectory);
     delete process.env.CONFIG_ENCRYPTION_KEY;
+    fsTracking.descriptorPaths.clear();
+    fsTracking.directoryFsyncError = undefined;
+    fsTracking.events.length = 0;
     vi.resetModules();
   });
 
@@ -55,6 +96,7 @@ describe.sequential("configuration persistence", () => {
       process.env.CONFIG_ENCRYPTION_KEY = originalEncryptionKey;
     }
     rmSync(workingDirectory, { recursive: true, force: true });
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -65,6 +107,52 @@ describe.sequential("configuration persistence", () => {
     expect(JSON.parse(readFileSync(join(workingDirectory, "config", "printers.json"), "utf8"))).toEqual({
       version: 1,
       printers: {}
+    });
+  });
+
+  it("fsyncs the parent directory after the atomic rename and closes both descriptors", async () => {
+    const database = await import("../src/services/database");
+
+    expect(database.saveConfig({ version: 1, printers: {} })).toBe(true);
+
+    expect(fsTracking.events.map(event => event.operation)).toEqual([
+      "open",
+      "fsync",
+      "close",
+      "rename",
+      "open",
+      "fsync",
+      "close"
+    ]);
+    expect(fsTracking.events[0].path).toMatch(/printers\.json\..+\.tmp$/);
+    expect(fsTracking.events[3].path).toBe(join(workingDirectory, "config", "printers.json"));
+    expect(fsTracking.events.slice(4).map(event => event.path)).toEqual([
+      join(workingDirectory, "config"),
+      join(workingDirectory, "config"),
+      join(workingDirectory, "config")
+    ]);
+  });
+
+  it("reports Linux directory fsync failures, closes the directory, and leaves no temporary file", async () => {
+    const database = await import("../src/services/database");
+    fsTracking.directoryFsyncError = Object.assign(new Error("directory fsync failed"), { code: "EINVAL" });
+
+    expect(database.saveConfig({ version: 1, printers: {} })).toBe(false);
+
+    const directoryEvents = fsTracking.events.filter(event => event.path === join(workingDirectory, "config"));
+    expect(directoryEvents.map(event => event.operation)).toEqual(["open", "fsync", "close"]);
+    expect(readdirSync(join(workingDirectory, "config"))).toEqual(["printers.json"]);
+  });
+
+  it("ignores only known unsupported directory fsync errors away from Linux", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const database = await import("../src/services/database");
+    fsTracking.directoryFsyncError = Object.assign(new Error("directory fsync unsupported"), { code: "EINVAL" });
+
+    expect(database.saveConfig({ version: 1, printers: {} })).toBe(true);
+    expect(fsTracking.events.at(-1)).toEqual({
+      operation: "close",
+      path: join(workingDirectory, "config")
     });
   });
 
@@ -195,6 +283,36 @@ describe.sequential("configuration persistence", () => {
     expect(database.getActivePrintThread("printer")).toBeNull();
   });
 
+  it("persists the hierarchical print identity while retaining the legacy project field", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000);
+    const database = await import("../src/services/database");
+    const identity = {
+      subtaskId: "subtask-1",
+      taskId: "task-1",
+      gcodeFile: "Metadata/plate_1.gcode",
+      plate: "1",
+      project: "Benchy"
+    };
+
+    expect(database.setActivePrintThread("printer", "thread-1", identity)).toBe(true);
+    expect(database.getActivePrintThread("printer")).toEqual({
+      threadId: "thread-1",
+      updatedAt: 2_000,
+      project: "Benchy",
+      identity
+    });
+
+    vi.resetModules();
+    const reloadedDatabase = await import("../src/services/database");
+    expect(reloadedDatabase.getActivePrintThread("printer")).toEqual({
+      threadId: "thread-1",
+      updatedAt: 2_000,
+      project: "Benchy",
+      identity
+    });
+  });
+
   it("loads legacy active thread recovery state without a project", async () => {
     mkdirSync(join(workingDirectory, "config"));
     writeFileSync(
@@ -205,6 +323,25 @@ describe.sequential("configuration persistence", () => {
     const database = await import("../src/services/database");
 
     expect(database.getActivePrintThread("printer")).toEqual({ threadId: "thread-legacy", updatedAt: 1_000 });
+  });
+
+  it("rejects persisted zero or empty identity fields without rejecting the legacy file format", async () => {
+    mkdirSync(join(workingDirectory, "config"));
+    writeFileSync(
+      join(workingDirectory, "config", "active-threads.json"),
+      JSON.stringify({
+        invalid: {
+          threadId: "thread-invalid",
+          updatedAt: 1_000,
+          project: "Benchy",
+          identity: { subtaskId: "0", project: "Benchy" }
+        }
+      }),
+      "utf8"
+    );
+    const database = await import("../src/services/database");
+
+    expect(database.getActivePrintThread("invalid")).toBeNull();
   });
 
   it("reports persistence failures", async () => {

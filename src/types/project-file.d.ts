@@ -9,8 +9,11 @@ export interface AmsMappingSlot {
 
 export interface ProjectFileCommand extends PrintMessageCommand {
   command: MessageCommand.PROJECT_FILE;
+  subtask_id?: string | number;
+  task_id?: string | number;
   model_id?: string;
-  plate_idx?: StringNumber;
+  gcode_file?: string;
+  plate_idx?: StringNumber | number;
   subtask_name?: string;
   url?: string;
   timestamp?: number;
