@@ -1,5 +1,6 @@
 import { Application } from "./application";
 import { getLogger } from "./libs/logger";
+import { getConfig } from "./services/database";
 import { initDiscordClient, shutdownDiscordClient } from "./services/discord/bot";
 import { registerCommands, setupCommandHandlers } from "./services/discord/commands";
 import { printerManager } from "./services/printer-manager";
@@ -28,6 +29,7 @@ const application = new Application({
 
 const main = async (): Promise<void> => {
   logger.info("🚀 Starting Bambu Lab Discord Bot...");
+  getConfig();
   await application.start();
   logger.info("✅ Bot started successfully");
 };

@@ -63,7 +63,7 @@ pnpm install
 # Token du bot Discord (requis)
 DISCORD_BOT_TOKEN=votre_token_bot
 
-# Clé AES-256 utilisée pour chiffrer les codes d'accès dans config/printers.json
+# Clé AES-256 obligatoire dès qu'une imprimante est configurée
 # Génération : openssl rand -base64 32
 CONFIG_ENCRYPTION_KEY=votre_cle_base64_de_32_octets
 
@@ -210,11 +210,15 @@ src/
 
 ## Configuration des imprimantes
 
-Les configurations sont stockées dans `config/printers.json` (créé automatiquement). Lorsque
-`CONFIG_ENCRYPTION_KEY` est définie, les codes d'accès y sont chiffrés avec AES-256-GCM. Conservez toujours la même clé :
-une configuration chiffrée ne peut pas être chargée sans elle. Les associations des impressions actives avec leurs threads
-Discord sont sauvegardées dans `config/active-threads.json` afin de permettre une reprise après redémarrage.
-Ce fichier contient des données sensibles et est ignoré par Git.
+Les configurations sont stockées dans `config/printers.json` (créé automatiquement). Dès qu'une imprimante est configurée,
+`CONFIG_ENCRYPTION_KEY` est obligatoire et les codes d'accès sont chiffrés avec AES-256-GCM. Au démarrage, un ancien
+fichier contenant des codes d'accès en clair est migré automatiquement et atomiquement si une clé valide est disponible.
+Sans cette clé, le bot refuse de charger ou d'enregistrer des imprimantes afin de ne jamais conserver leurs codes d'accès
+en clair. Conservez toujours la même clé : une configuration chiffrée ne peut pas être chargée sans elle.
+
+Les associations des impressions actives avec leurs threads Discord sont sauvegardées dans
+`config/active-threads.json` afin de permettre une reprise après redémarrage. Ces fichiers contiennent des données
+sensibles et sont ignorés par Git.
 
 ## Forum Tags
 
