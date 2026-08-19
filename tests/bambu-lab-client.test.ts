@@ -1,5 +1,5 @@
 import EventEmitter from "node:events";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MessageCommand, PrintState } from "../src/enums";
 import BambuLabClient from "../src/services/bambu-lab";
@@ -43,6 +43,10 @@ describe("BambuLabClient MQTT lifecycle", () => {
     connectMock.mockReset();
     connectMock.mockReturnValue(mqttClient);
     client = new BambuLabClient(config);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("subscribes to reports before requesting the initial push", async () => {
@@ -99,6 +103,36 @@ describe("BambuLabClient MQTT lifecycle", () => {
     expect(client.isConnected()).toBe(false);
   });
 
+  it("times out initial session setup with deterministic forced transport teardown", async () => {
+    vi.useFakeTimers();
+    client = new BambuLabClient(config, 1_000);
+    mqttClient.subscribe.mockImplementation(() => undefined);
+
+    const connection = client.connect();
+    const rejection = expect(connection).rejects.toThrow("timed out after 1000ms");
+    mqttClient.emit("connect");
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(connectMock).toHaveBeenCalledWith(
+      "mqtts://192.0.2.10:8883",
+      expect.objectContaining({ connectTimeout: 1_000 })
+    );
+    expect(mqttClient.end).toHaveBeenCalledWith(true);
+    expect(client.isConnected()).toBe(false);
+    await rejection;
+  });
+
+  it("disconnect cancels and owns an in-flight initial connection", async () => {
+    const connection = client.connect();
+    const rejection = expect(connection).rejects.toThrow("initial connection cancelled");
+
+    await client.disconnect();
+
+    await rejection;
+    expect(mqttClient.end).toHaveBeenCalledWith(true);
+    expect(client.isConnected()).toBe(false);
+  });
+
   it("processes incoming report messages sequentially", async () => {
     let releaseFirstListener: (() => void) | undefined;
     const firstListenerFinished = new Promise<void>(resolve => {
@@ -145,17 +179,22 @@ describe("BambuLabClient MQTT lifecycle", () => {
     mqttClient.emit("connect");
     await connection;
 
-    let disconnected = false;
+    let firstDisconnected = false;
+    let secondDisconnected = false;
     const firstDisconnect = client.disconnect().then(() => {
-      disconnected = true;
+      firstDisconnected = true;
     });
-    const secondDisconnect = client.disconnect();
-    await secondDisconnect;
+    const secondDisconnect = client.disconnect().then(() => {
+      secondDisconnected = true;
+    });
+    await Promise.resolve();
 
-    expect(disconnected).toBe(false);
+    expect(firstDisconnected).toBe(false);
+    expect(secondDisconnected).toBe(false);
     expect(mqttClient.endAsync).toHaveBeenCalledOnce();
     finishShutdown?.();
-    await firstDisconnect;
-    expect(disconnected).toBe(true);
+    await Promise.all([firstDisconnect, secondDisconnect]);
+    expect(firstDisconnected).toBe(true);
+    expect(secondDisconnected).toBe(true);
   });
 });
