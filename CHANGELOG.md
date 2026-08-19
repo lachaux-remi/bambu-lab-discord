@@ -2,38 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2.2.0](https://github.com/lachaux-remi/bambu-lab-discord/compare/bambu-lab-discord-v2.1.0...bambu-lab-discord-v2.2.0) (2026-08-19)
-
+## [2.2.0](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.1.0...v2.2.0) (2026-08-19)
 
 ### Features
 
-* add configurable cooldown for MQTT error log deduplication ([eb85bc9](https://github.com/lachaux-remi/bambu-lab-discord/commit/eb85bc97c7bd8f330f1bbfb5ee84a026a0b8e9fc))
-* add MQTT printer emulator for development ([6c71985](https://github.com/lachaux-remi/bambu-lab-discord/commit/6c7198550adbabe2f5451a95576f2f4a14e2f276))
-* auto chamber light control around screenshots and after print end ([ddee3a0](https://github.com/lachaux-remi/bambu-lab-discord/commit/ddee3a06752d3a45fcd71275b8495f23d4ea397e))
-* auto chamber light control around screenshots and after print end ([504e38b](https://github.com/lachaux-remi/bambu-lab-discord/commit/504e38b02b55a4815d15267f154b5e19a67f314c))
-* configurable RTC port and code cleanup ([b5a4af1](https://github.com/lachaux-remi/bambu-lab-discord/commit/b5a4af11547b914ec47f9e4199dad6ef25265bd2))
-* configurable RTC port and code cleanup ([4cea674](https://github.com/lachaux-remi/bambu-lab-discord/commit/4cea674555da32328a281ed0ffefd06ea0897524))
-* Discord forum threads with multicolor detection and auto-updating tags ([#2](https://github.com/lachaux-remi/bambu-lab-discord/issues/2)) ([adef74e](https://github.com/lachaux-remi/bambu-lab-discord/commit/adef74e690d33682f94dab260208aad50dabd700))
-* harden printer monitoring and add tests ([f80b7c5](https://github.com/lachaux-remi/bambu-lab-discord/commit/f80b7c565307be6bb2b8100971ec958c0c7b9858))
-
+- Add MQTT printer emulator for development ([6c71985](https://github.com/lachaux-remi/bambu-lab-discord/commit/6c7198550adbabe2f5451a95576f2f4a14e2f276))
+- Harden printer monitoring and add automated tests ([f80b7c5](https://github.com/lachaux-remi/bambu-lab-discord/commit/f80b7c565307be6bb2b8100971ec958c0c7b9858))
 
 ### Bug Fixes
 
-* allow esbuild build scripts and fix CMD JSON form ([eca14d4](https://github.com/lachaux-remi/bambu-lab-discord/commit/eca14d4b6e3150d765abdaebdca94e0b856d3226))
-* allow esbuild build scripts and fix CMD JSON form ([70c3485](https://github.com/lachaux-remi/bambu-lab-discord/commit/70c34859160f4786eaa723d9bcb36048f8ad0568))
-* bypass pnpm 11 dep check on container startup ([9e208f8](https://github.com/lachaux-remi/bambu-lab-discord/commit/9e208f85d583c7d8ce21b0831b465559374b8677))
-* bypass pnpm 11 dep check on container startup ([5b635b9](https://github.com/lachaux-remi/bambu-lab-discord/commit/5b635b9b2f7a3077c3d495e9a3c0a00d780b2818))
-* include pnpm workspace config in Docker build ([638646b](https://github.com/lachaux-remi/bambu-lab-discord/commit/638646b4ba59c1263d996f07601c1a053925ba5a))
-* persist Docker runtime configuration ([c0daf4c](https://github.com/lachaux-remi/bambu-lab-discord/commit/c0daf4c92aa52b3045d1267417a99a69b028c2c1))
-* persist Docker runtime configuration ([8052ee3](https://github.com/lachaux-remi/bambu-lab-discord/commit/8052ee375f394a1785fe5138017b589a0ccf0113))
-* remove deprecated baseUrl from tsconfig for TypeScript 6.0 ([e32f3f9](https://github.com/lachaux-remi/bambu-lab-discord/commit/e32f3f980fd66c7138491dbc8b43cd28cba8abde))
-* remove deprecated baseUrl from tsconfig for TypeScript 6.0 ([5d57f2a](https://github.com/lachaux-remi/bambu-lab-discord/commit/5d57f2a59c784030cc0af5b23945d0befd4736d5))
-* require encrypted printer configuration ([199a748](https://github.com/lachaux-remi/bambu-lab-discord/commit/199a7480ad9f3d9e00450de13f62530df2ef3bdd))
-* require encrypted printer configuration ([5f9de00](https://github.com/lachaux-remi/bambu-lab-discord/commit/5f9de00122c857339e2745a14beeba3380285d95))
-* shut down application cleanly ([2f54f17](https://github.com/lachaux-remi/bambu-lab-discord/commit/2f54f17fbaf8b192fe382e2efad6bb4900b0bf57))
-* shut down application cleanly ([0fe4f0a](https://github.com/lachaux-remi/bambu-lab-discord/commit/0fe4f0af12e37bf2b94dc81d28914ede91923a69))
-* use --ignore-scripts to bypass pnpm 11 build approval in Docker ([0273893](https://github.com/lachaux-remi/bambu-lab-discord/commit/027389350c3fbea569af874d659520a7d038d337))
-* use --ignore-scripts to bypass pnpm 11 build approval in Docker ([813d448](https://github.com/lachaux-remi/bambu-lab-discord/commit/813d448adfad9b01eeea57263933abcd23c74497))
+- Include pnpm workspace configuration in Docker builds ([638646b](https://github.com/lachaux-remi/bambu-lab-discord/commit/638646b4ba59c1263d996f07601c1a053925ba5a))
+- Persist Docker runtime configuration with non-root write access ([8052ee3](https://github.com/lachaux-remi/bambu-lab-discord/commit/8052ee375f394a1785fe5138017b589a0ccf0113))
+- Shut down Discord and MQTT services cleanly ([0fe4f0a](https://github.com/lachaux-remi/bambu-lab-discord/commit/0fe4f0af12e37bf2b94dc81d28914ede91923a69))
+- Encrypt printer access codes and migrate plaintext configuration automatically ([5f9de00](https://github.com/lachaux-remi/bambu-lab-discord/commit/5f9de00122c857339e2745a14beeba3380285d95))
 
 ## [2.1.0] - 2026-01-17
 
