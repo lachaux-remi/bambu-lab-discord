@@ -2,6 +2,9 @@ import type { ForumTagDefinition } from "./types/discord";
 
 export const APP_DEBUG = process.env.DEBUG === "true";
 
+// Use plaintext MQTT only for a local development broker. Production defaults to MQTT over TLS.
+export const MQTT_PROTOCOL = process.env.MQTT_PROTOCOL === "mqtt" ? "mqtt" : "mqtts";
+
 // Notification settings
 export const NOTIFICATION_PERCENT = parseInt(process.env.NOTIFICATION_PERCENT || "5", 10);
 export const NOTIFICATION_FOOTER_TEXT = process.env.NOTIFICATION_FOOTER_TEXT || "Bambu Lab Discord";

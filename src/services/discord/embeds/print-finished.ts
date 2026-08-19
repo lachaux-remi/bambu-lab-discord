@@ -3,7 +3,10 @@ import type { Status } from "../../../types/printer-status";
 import { formatMinuteToBestDisplay, timeDiffInMinutes } from "../../../utils/time.util";
 import { createBaseEmbed } from "./base";
 
-export const printFinished = async (status: Status, screenshotFn: () => Promise<Buffer | null>): Promise<EmbedResult> => {
+export const printFinished = async (
+  status: Status,
+  screenshotFn: () => Promise<Buffer | null>
+): Promise<EmbedResult> => {
   let time = "";
   if (status.startedAt) {
     const timeDiff = timeDiffInMinutes(status.startedAt, new Date().getTime());

@@ -148,6 +148,26 @@ pnpm run debug:discord   # Tester les notifications Discord
 pnpm run debug:rtc       # Tester les captures RTC
 ```
 
+### Émulateur MQTT pour le développement
+
+Pour développer sans imprimante accessible sur le réseau, démarrez l'émulateur dans un premier terminal :
+
+```bash
+pnpm run dev:mqtt-emulator
+```
+
+Il expose une fausse imprimante Bambu Lab sur `mqtt://127.0.0.1:1883`. Configurez le bot avec :
+
+- IP : `127.0.0.1`
+- port MQTT : `1883`
+- numéro de série : `DEV_SERIAL`
+- code d'accès : `mock-access-code`
+- variable d'environnement : `MQTT_PROTOCOL=mqtt`
+
+Au premier `pushall` du bot, l'émulateur joue automatiquement un scénario complet : préparation, démarrage,
+progression, pause, reprise et fin réussie. Le MQTT sécurisé (`mqtts`) reste utilisé par défaut lorsque
+`MQTT_PROTOCOL` n'est pas défini.
+
 ## Déploiement Docker
 
 ```yaml
@@ -205,4 +225,3 @@ Tous les tags sont modérés (seul le bot peut les modifier).
 ## Licence
 
 ISC
-

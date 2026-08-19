@@ -1,7 +1,7 @@
 import { MqttClient, connect } from "mqtt";
 import EventEmitter from "node:events";
 
-import { CHAMBER_LIGHT_WARMUP_MS, ERROR_LOG_COOLDOWN_MS } from "../../constants";
+import { CHAMBER_LIGHT_WARMUP_MS, ERROR_LOG_COOLDOWN_MS, MQTT_PROTOCOL } from "../../constants";
 import { MessageCommand } from "../../enums";
 import { getLogger } from "../../libs/logger";
 import { takeScreenshot } from "../../libs/rtc";
@@ -30,7 +30,7 @@ export default class BambuLabClient extends EventEmitter {
     this.config = config;
     this.topicReport = `device/${config.serial}/report`;
     this.topicRequest = `device/${config.serial}/request`;
-    this.brokerAddress = `mqtts://${config.ip}:${config.port}`;
+    this.brokerAddress = `${MQTT_PROTOCOL}://${config.ip}:${config.port}`;
 
     this.printerStatus = new PrinterStatus(this);
   }
