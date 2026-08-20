@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => {
           ? vi.fn().mockRejectedValue(connectionError)
           : vi.fn().mockResolvedValue(undefined),
       disconnect: vi.fn().mockResolvedValue(undefined),
-      isConnected: vi.fn().mockReturnValue(true),
+      isConnected: vi.fn().mockReturnValue(!connectionError),
       on: vi.fn((_event: string, listener: StatusListener) => {
         statusListener = listener;
         return client;
@@ -202,14 +202,18 @@ describe("PrinterManager public seam", () => {
     expect(printerManager.getRunningPrinters()).toEqual([config.id]);
   });
 
-  it("does not retain ownership after connection failure and permits a retry", async () => {
+  it("keeps global startup operational and retains one mqtt.js client after a cold-start network failure", async () => {
     mocks.state.nextConnectionError = new Error("offline");
+    mocks.getEnabledPrinters.mockReturnValue([config]);
     const { printerManager } = await import("../src/services/printer-manager");
 
-    await expect(printerManager.startPrinter(config.id)).resolves.toBe(false);
-    expect(printerManager.getPrinterStatus(config.id).running).toBe(false);
+    await expect(printerManager.startAll()).resolves.toBeUndefined();
+    expect(printerManager.getPrinterStatus(config.id)).toEqual({ running: true, connected: false });
+    mocks.clients[0].isConnected.mockReturnValue(true);
+    expect(printerManager.getPrinterStatus(config.id)).toEqual({ running: true, connected: true });
     await expect(printerManager.startPrinter(config.id)).resolves.toBe(true);
-    expect(mocks.Client).toHaveBeenCalledTimes(2);
+    expect(mocks.Client).toHaveBeenCalledOnce();
+    expect(mocks.clients[0].disconnect).not.toHaveBeenCalled();
   });
 
   it("fails global startup on MQTT certificate validation errors", async () => {

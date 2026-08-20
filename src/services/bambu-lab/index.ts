@@ -25,6 +25,13 @@ interface ConnectionAttempt {
   cancel: (error: Error) => Promise<void>;
 }
 
+enum MqttConnectionState {
+  PENDING = "pending",
+  RETRYING = "retrying",
+  CONNECTED = "connected",
+  STOPPED = "stopped"
+}
+
 export default class BambuLabClient extends EventEmitter {
   private mqttClient?: MqttClient;
   private connectionAttempt?: ConnectionAttempt;
@@ -41,6 +48,8 @@ export default class BambuLabClient extends EventEmitter {
   private mqttSuppressedFailureCount: number = 0;
   private mqttSuppressedFailuresSinceSummary: number = 0;
   private lastMqttErrorSummaryAt?: number;
+  private mqttAttemptHasFailure: boolean = false;
+  private stopping: boolean = false;
   private chamberLightOn: boolean = false;
   private messageQueue: Promise<void> = Promise.resolve();
 
@@ -98,6 +107,8 @@ export default class BambuLabClient extends EventEmitter {
       return Promise.resolve();
     }
 
+    this.stopping = false;
+
     let cancelConnection!: ConnectionAttempt["cancel"];
     const promise = new Promise<void>((resolve, reject) => {
       logger.info({ printer: this.config.name, ip: this.config.ip }, "Connecting to printer...");
@@ -110,48 +121,59 @@ export default class BambuLabClient extends EventEmitter {
         ...(MQTT_PROTOCOL === "mqtts" ? getBambuTlsOptions(this.config.serial) : {})
       });
       this.mqttClient = mqttClient;
-      let connectionState: "pending" | "connected" | "failed" = "pending";
+      let connectionState = MqttConnectionState.PENDING;
       const timeout = setTimeout(() => {
-        void failInitialConnection(new Error(`MQTT initial connection timed out after ${this.connectTimeoutMs}ms`));
+        const error = new Error(`MQTT initial connection timed out after ${this.connectTimeoutMs}ms`);
+        this.logMqttConnectionFailure(error);
+        void failInitialConnection(error, false);
       }, this.connectTimeoutMs);
 
-      const failInitialConnection = (error: Error): Promise<void> => {
-        if (connectionState === "connected") {
+      const failInitialConnection = (error: Error, stopTransport: boolean): Promise<void> => {
+        if (connectionState === MqttConnectionState.STOPPED) {
+          return this.disconnectPromise ?? Promise.resolve();
+        }
+        if (stopTransport) {
+          const initialConnectionPending = connectionState === MqttConnectionState.PENDING;
+          connectionState = MqttConnectionState.STOPPED;
+          clearTimeout(timeout);
+          this.connectionAttempt = undefined;
+          const shutdown = this.shutdownTransport(mqttClient, true);
+          if (initialConnectionPending) {
+            reject(error);
+          }
+          return shutdown;
+        }
+        if (connectionState === MqttConnectionState.CONNECTED) {
           logger.error({ printer: this.config.name, message: error.message }, "Failed to initialize MQTT session");
           mqttClient.reconnect();
           return Promise.resolve();
         }
-        if (connectionState === "failed") {
-          return this.disconnectPromise ?? Promise.resolve();
-        }
 
-        connectionState = "failed";
+        const initialConnectionPending = connectionState === MqttConnectionState.PENDING;
+        connectionState = MqttConnectionState.RETRYING;
         clearTimeout(timeout);
         this.connectionAttempt = undefined;
-        if (this.mqttClient === mqttClient) {
-          this.mqttClient = undefined;
+        if (mqttClient.connected) {
+          mqttClient.reconnect();
         }
-        try {
-          mqttClient.end(true);
-        } catch (shutdownError) {
-          logger.error({ printer: this.config.name, error: shutdownError }, "Failed to shut down MQTT transport");
+        if (initialConnectionPending) {
+          reject(error);
         }
-        reject(error);
         return Promise.resolve();
       };
-      cancelConnection = failInitialConnection;
+      cancelConnection = error => failInitialConnection(error, true);
 
       mqttClient.on("connect", () => {
-        if (connectionState === "failed") {
+        if (connectionState === MqttConnectionState.STOPPED || this.stopping || this.mqttClient !== mqttClient) {
           return;
         }
 
         mqttClient.subscribe(this.topicReport, error => {
           if (error) {
-            void failInitialConnection(error);
+            void failInitialConnection(error, false);
             return;
           }
-          if (connectionState === "failed") {
+          if (connectionState === MqttConnectionState.STOPPED || this.stopping || this.mqttClient !== mqttClient) {
             return;
           }
 
@@ -166,21 +188,30 @@ export default class BambuLabClient extends EventEmitter {
             }),
             publishError => {
               if (publishError) {
-                void failInitialConnection(publishError);
+                void failInitialConnection(publishError, false);
                 return;
               }
 
-              if (connectionState === "pending") {
-                connectionState = "connected";
+              if (connectionState === MqttConnectionState.STOPPED || this.stopping || this.mqttClient !== mqttClient) {
+                return;
+              }
+              if (connectionState === MqttConnectionState.PENDING) {
                 clearTimeout(timeout);
                 this.connectionAttempt = undefined;
                 resolve();
               }
+              connectionState = MqttConnectionState.CONNECTED;
               this.logMqttRecovery();
+              this.mqttAttemptHasFailure = false;
               logger.info({ printer: this.config.name }, "Connected to printer");
             }
           );
         });
+      });
+      mqttClient.on("reconnect", () => {
+        if (!this.stopping && this.mqttClient === mqttClient) {
+          this.mqttAttemptHasFailure = false;
+        }
       });
       mqttClient.on("disconnect", packet => {
         logger.debug({ printer: this.config.name, reasonCode: packet.reasonCode }, "Disconnected from printer");
@@ -198,6 +229,9 @@ export default class BambuLabClient extends EventEmitter {
           });
       });
       mqttClient.on("error", error => {
+        if (this.stopping || connectionState === MqttConnectionState.STOPPED || this.mqttClient !== mqttClient) {
+          return;
+        }
         if (isTlsCertificateError(error)) {
           logger.error(
             {
@@ -208,21 +242,23 @@ export default class BambuLabClient extends EventEmitter {
             },
             "BambuLab MQTT certificate validation failed"
           );
+          const connectionError = Object.assign(
+            new Error(
+              `MQTT TLS certificate validation failed for printer ${this.config.name} at ${this.config.ip}; ` +
+                `expected identity ${this.config.serial}: ${error.message}`,
+              { cause: error }
+            ),
+            { code: (error as Error & { code: string }).code }
+          );
+          void failInitialConnection(connectionError, true).catch(shutdownError => {
+            logger.error({ printer: this.config.name, error: shutdownError }, "Failed to shut down MQTT transport");
+          });
+          return;
         } else {
           this.logMqttConnectionFailure(error);
         }
-        if (connectionState === "pending") {
-          const connectionError = isTlsCertificateError(error)
-            ? Object.assign(
-                new Error(
-                  `MQTT TLS certificate validation failed for printer ${this.config.name} at ${this.config.ip}; ` +
-                    `expected identity ${this.config.serial}: ${error.message}`,
-                  { cause: error }
-                ),
-                { code: (error as Error & { code: string }).code }
-              )
-            : error;
-          void failInitialConnection(connectionError);
+        if (connectionState === MqttConnectionState.PENDING) {
+          void failInitialConnection(error, false);
         }
       });
     });
@@ -235,6 +271,10 @@ export default class BambuLabClient extends EventEmitter {
   }
 
   private logMqttConnectionFailure(error: Error): void {
+    if (this.mqttAttemptHasFailure) {
+      return;
+    }
+    this.mqttAttemptHasFailure = true;
     const now = Date.now();
     this.mqttOutageStartedAt ??= now;
     this.lastMqttErrorSummaryAt ??= now;
@@ -295,6 +335,7 @@ export default class BambuLabClient extends EventEmitter {
       return this.disconnectPromise;
     }
 
+    this.stopping = true;
     const connectionAttempt = this.connectionAttempt;
     if (connectionAttempt) {
       return connectionAttempt.cancel(new Error("MQTT initial connection cancelled"));
