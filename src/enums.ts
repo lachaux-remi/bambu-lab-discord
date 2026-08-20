@@ -1,6 +1,7 @@
 export enum MessageCommand {
   PUSH_STATUS = "push_status",
-  PROJECT_FILE = "project_file"
+  PROJECT_FILE = "project_file",
+  STOP = "stop"
 }
 
 export enum PrintState {

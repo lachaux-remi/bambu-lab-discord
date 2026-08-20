@@ -65,6 +65,7 @@ export default class PrinterStatus {
       newStatus.progressPercent = 0;
       newStatus.remainingTime = 0;
       newStatus.startedAt = new Date().getTime();
+      newStatus.cancellationRequested = false;
     } else if (this.isPushStatusCommand(data)) {
       logger.debug(
         {
@@ -101,6 +102,12 @@ export default class PrinterStatus {
       if (data.gcode_state) {
         newStatus.state = data.gcode_state;
         if (
+          [PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(this.latestStatus.state) &&
+          [PrintState.PREPARE, PrintState.RUNNING, PrintState.PAUSE].includes(data.gcode_state)
+        ) {
+          newStatus.cancellationRequested = false;
+        }
+        if (
           this.latestStatus.startedAt === undefined &&
           [PrintState.RUNNING, PrintState.PAUSE].includes(data.gcode_state)
         ) {
@@ -124,6 +131,11 @@ export default class PrinterStatus {
       if (data.mc_remaining_time !== undefined) {
         newStatus.remainingTime = Number(data.mc_remaining_time);
       }
+    } else if (data.command === MessageCommand.STOP) {
+      if (data.result !== "success") {
+        return;
+      }
+      newStatus.cancellationRequested = true;
     } else {
       logger.warn({ command: data.command, keys: Object.keys(data) }, "Unknown message command type");
       return;
@@ -142,7 +154,8 @@ export default class PrinterStatus {
       newStatus.subtaskId !== undefined ||
       newStatus.taskId !== undefined ||
       newStatus.gcodeFile !== undefined ||
-      newStatus.plate !== undefined;
+      newStatus.plate !== undefined ||
+      newStatus.cancellationRequested !== undefined;
 
     if (hasImportantChanges) {
       logger.debug(

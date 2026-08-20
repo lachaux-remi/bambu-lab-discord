@@ -499,7 +499,7 @@ export default class BambuLabClient extends EventEmitter {
     return (
       !!data?.print &&
       !!data?.print?.command &&
-      [MessageCommand.PUSH_STATUS, MessageCommand.PROJECT_FILE].includes(data.print.command)
+      [MessageCommand.PUSH_STATUS, MessageCommand.PROJECT_FILE, MessageCommand.STOP].includes(data.print.command)
     );
   }
 }
