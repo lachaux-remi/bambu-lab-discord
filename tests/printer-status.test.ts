@@ -5,6 +5,7 @@ import { MessageCommand, PrintState } from "../src/enums";
 import type BambuLabClient from "../src/services/bambu-lab";
 import PrinterStatus from "../src/services/printer-status";
 import type { Status } from "../src/types/printer-status";
+import { realMqttPrintCycle } from "./fixtures/real-mqtt-print-cycle";
 
 describe("PrinterStatus", () => {
   let client: EventEmitter & Pick<BambuLabClient, "emitStatus">;
@@ -97,6 +98,52 @@ describe("PrinterStatus", () => {
       state: PrintState.RUNNING,
       currentLayer: 4,
       progressPercent: 8
+    });
+  });
+
+  it("preserves print identity and progress across a real pause-resume-finish cycle", async () => {
+    const transitions: Array<{ current: Status; previous: Status }> = [];
+    client.on("status", (current: Status, previous: Status) => {
+      transitions.push({ current: { ...current }, previous: { ...previous } });
+    });
+
+    for (const payload of realMqttPrintCycle) {
+      await status.onUpdate(payload);
+    }
+
+    expect(transitions.map(({ current }) => current.state)).toEqual([
+      PrintState.PREPARE,
+      PrintState.PREPARE,
+      PrintState.RUNNING,
+      PrintState.RUNNING,
+      PrintState.PAUSE,
+      PrintState.RUNNING,
+      PrintState.FINISH
+    ]);
+    expect(transitions.at(-1)?.current).toMatchObject({
+      state: PrintState.FINISH,
+      model: "model-fixture",
+      project: "Fixture print",
+      subtaskId: "subtask-fixture",
+      taskId: "task-fixture",
+      gcodeFile: "fixture.gcode.3mf",
+      plate: "1",
+      isMulticolor: false,
+      currentLayer: 5,
+      maxLayers: 26,
+      progressPercent: 100
+    });
+    expect(transitions[4]).toMatchObject({
+      current: { state: PrintState.PAUSE },
+      previous: { state: PrintState.RUNNING, progressPercent: 80 }
+    });
+    expect(transitions[5]).toMatchObject({
+      current: { state: PrintState.RUNNING },
+      previous: { state: PrintState.PAUSE }
+    });
+    expect(transitions[6]).toMatchObject({
+      current: { state: PrintState.FINISH, progressPercent: 100 },
+      previous: { state: PrintState.RUNNING, progressPercent: 80 }
     });
   });
 
