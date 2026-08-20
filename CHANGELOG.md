@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.1](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.4.0...v2.4.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* make configuration errors actionable ([#40](https://github.com/lachaux-remi/bambu-lab-discord/issues/40)) ([e7dcd82](https://github.com/lachaux-remi/bambu-lab-discord/commit/e7dcd82875e4f63e2d8fe5ae7dd5bf75010382ef))
+* recover printers unavailable at startup ([#41](https://github.com/lachaux-remi/bambu-lab-discord/issues/41)) ([6056478](https://github.com/lachaux-remi/bambu-lab-discord/commit/6056478b439bb9ee4eba039f75e6e8c8a1401993))
+* summarize repeated MQTT connection errors ([#37](https://github.com/lachaux-remi/bambu-lab-discord/issues/37)) ([5b3a18c](https://github.com/lachaux-remi/bambu-lab-discord/commit/5b3a18c5de1281cb18b7d069c5acbffc1bc296a5))
+
 ## [2.4.0](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.3.0...v2.4.0) (2026-08-19)
 
 
