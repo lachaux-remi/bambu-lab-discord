@@ -1,6 +1,17 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to all coding agents working in this repository.
+
+## Git and Pull Request Policy
+
+- Agents may create branches, commit changes, push branches, and open pull requests.
+- Pull request titles must be written in English.
+- Pull request descriptions must be written in French.
+- Every pull request must be reviewed by the repository owner before it is merged.
+- Only the repository owner may merge pull requests. Agents must never merge a pull request or enable auto-merge.
+- Agents must not approve or close pull requests.
+- After opening or updating a pull request, stop and wait for the repository owner's review.
+- Never push directly to `master`.
 
 ## Project Overview
 
