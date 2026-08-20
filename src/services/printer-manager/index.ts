@@ -603,8 +603,11 @@ class PrinterManager {
           await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.FAILED);
         }
       } else if (newStatus.state === PrintState.FAILED) {
-        logger.info({ printer: config.name }, "Print failed");
-        const result = await printFailed(newStatus, () => instance.client.takeScreenshotWithLight());
+        const cancelled = newStatus.cancellationRequested === true;
+        logger.info({ printer: config.name }, cancelled ? "Print cancelled" : "Print failed");
+        const result = await (cancelled ? printCancelled : printFailed)(newStatus, () =>
+          instance.client.takeScreenshotWithLight()
+        );
         await sendMessage(result);
         await this.updatePrintThreadTags(instance, printKey, newStatus, PrintState.FAILED);
       } else if (newStatus.state === PrintState.IDLE) {

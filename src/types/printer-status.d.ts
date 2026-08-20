@@ -19,4 +19,5 @@ export interface Status {
   trayColor: HexColor;
   trayType: string;
   isMulticolor: boolean;
+  cancellationRequested?: boolean;
 }

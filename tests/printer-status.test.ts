@@ -179,6 +179,28 @@ describe("PrinterStatus", () => {
     });
   });
 
+  it("resets cancellation intent when a new print starts without project metadata", async () => {
+    const emittedStatuses: Status[] = [];
+    client.on("status", (newStatus: Status) => emittedStatuses.push({ ...newStatus }));
+
+    await status.onUpdate({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.PAUSE });
+    await status.onUpdate({ command: MessageCommand.STOP, result: "success" });
+    expect(emittedStatuses).toHaveLength(1);
+
+    await status.onUpdate({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.FAILED });
+    await status.onUpdate({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.RUNNING });
+
+    expect(emittedStatuses).toHaveLength(3);
+    expect(emittedStatuses[1]).toMatchObject({
+      state: PrintState.FAILED,
+      cancellationRequested: true
+    });
+    expect(emittedStatuses[2]).toMatchObject({
+      state: PrintState.RUNNING,
+      cancellationRequested: false
+    });
+  });
+
   it("does not emit for unknown commands or non-critical remaining-time updates", async () => {
     const listener = vi.fn();
     client.on("status", listener);
