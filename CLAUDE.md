@@ -235,6 +235,16 @@ DEBUG=false  # default
 - Curly braces required for all control structures
 - Line width: 120 characters
 
+## Pull Requests and Releases
+
+- Write pull request titles and commit subjects in English using a Conventional Commit prefix (for example,
+  `feat: add printer status`, `fix: handle disconnect`, or `chore: update tooling`).
+- Write pull request descriptions in French.
+- Release Please localizes release pull request descriptions through `release-please-config.json`. Never replace a release
+  pull request body manually. In particular, preserve the exact `---` separator lines and all generated content between
+  them: Release Please reparses that machine-generated block after merge to create the tag. Edit the configured header,
+  footer, or changelog section labels instead of the generated pull request body.
+
 ## Key Types
 
 - `PrinterConfig`: Configuration for a single printer (IP, serial, access code, forum channel, etc.)
