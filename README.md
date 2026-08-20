@@ -152,6 +152,10 @@ le forum configuré pour l'imprimante. Cette commande nécessite la permission *
 pnpm run debug:mqtt
 ```
 
+Arrêtez le bot avant de lancer cette commande. Selon le modèle et le firmware, le broker de l'imprimante peut refuser
+une seconde connexion MQTT simultanée ; le diagnostic afficherait alors des erreurs de connexion jusqu'à la fermeture
+du premier client.
+
 La commande affiche dans le terminal un résumé lisible des commandes, états, progressions et couches. Elle écrit en
 parallèle `mqtt-debug-<timestamp>.ndjson` dans le répertoire courant : une ligne JSON compacte par message, avec
 `timestamp`, `key` et `payload`, dans l'ordre de réception. Chaque ligne peut être parsée indépendamment et utilisée
