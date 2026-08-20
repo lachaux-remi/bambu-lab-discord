@@ -146,6 +146,28 @@ pnpm run debug:rtc
 Depuis Discord, `/printer screenshot <name>` capture une image réelle et crée une notification publique de test dans
 le forum configuré pour l'imprimante. Cette commande nécessite la permission **Gérer le serveur** ou **Administrateur**.
 
+## Capture de diagnostic MQTT
+
+```bash
+pnpm run debug:mqtt
+```
+
+La commande affiche dans le terminal un résumé lisible des commandes, états, progressions et couches. Elle écrit en
+parallèle `mqtt-debug-<timestamp>.ndjson` dans le répertoire courant : une ligne JSON compacte par message, avec
+`timestamp`, `key` et `payload`, dans l'ordre de réception. Chaque ligne peut être parsée indépendamment et utilisée
+directement comme fixture. Un message JSON invalide est remplacé par sa longueur et son SHA-256; son contenu brut n'est
+jamais écrit.
+
+La capture supprime récursivement les credentials connus (codes d'accès, mots de passe, tokens, autorisations, clés,
+signatures et URLs), et pseudonymise avec un sel aléatoire propre à la capture les IP, serials, identifiants et noms de
+projets. Un même identifiant garde le même pseudonyme pendant une capture, ce qui préserve les corrélations. Les
+variables de connexion, le broker et les topics ne sont jamais inclus dans le fichier ou les logs.
+
+Le filtre conserve volontairement les autres champs MQTT afin que la capture reste utile au diagnostic. Comme toute
+anonymisation fondée sur les noms de champs et la forme des valeurs, il ne peut pas garantir de reconnaître une chaîne
+secrète arbitraire placée par un futur firmware sous une clé inconnue. Vérifiez donc la capture avant de la partager si
+elle provient d'un firmware ou d'un plugin non pris en charge. Le fichier généré est ignoré par Git.
+
 ## Validation TLS Bambu
 
 Les connexions MQTT `mqtts` et caméra RTC vérifient automatiquement le certificat présenté par l'imprimante avec le
