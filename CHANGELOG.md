@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.2](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.4.1...v2.4.2) (2026-08-20)
+
+
+### Bug Fixes
+
+* classify successful stop as print cancellation ([#43](https://github.com/lachaux-remi/bambu-lab-discord/issues/43)) ([3127a7b](https://github.com/lachaux-remi/bambu-lab-discord/commit/3127a7bdec6141d7dfa2e26dfefd3cba8247817d))
+* prevent raw MQTT payload debug logging ([#48](https://github.com/lachaux-remi/bambu-lab-discord/issues/48)) ([52baa76](https://github.com/lachaux-remi/bambu-lab-discord/commit/52baa7638a6bf33f1f445993981b756bdf938a7b))
+* redact residual MQTT capture identifiers ([#47](https://github.com/lachaux-remi/bambu-lab-discord/issues/47)) ([aa87a33](https://github.com/lachaux-remi/bambu-lab-discord/commit/aa87a333f1570a66fc743d63a7ea06edd3700d34))
+* sanitize MQTT debug captures ([#44](https://github.com/lachaux-remi/bambu-lab-discord/issues/44)) ([ff3ccd6](https://github.com/lachaux-remi/bambu-lab-discord/commit/ff3ccd630097278651f5f79336c316330df3ab4b))
+
 ## [2.4.1](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.4.0...v2.4.1) (2026-08-20)
 
 
