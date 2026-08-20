@@ -2,7 +2,7 @@ import type { ForumTagDefinition } from "./types/discord";
 
 const parseNumberSetting = (name: string, fallback: number, minimum: number, maximum: number): number => {
   const rawValue = process.env[name];
-  if (rawValue === undefined) {
+  if (rawValue === undefined || rawValue.trim() === "") {
     return fallback;
   }
 
