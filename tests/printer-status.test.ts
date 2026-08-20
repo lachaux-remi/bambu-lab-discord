@@ -7,11 +7,16 @@ import PrinterStatus from "../src/services/printer-status";
 import type { Status } from "../src/types/printer-status";
 import { realMqttPrintCycle } from "./fixtures/real-mqtt-print-cycle";
 
+const extractProjectImageMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../src/libs/project", () => ({ extractProjectImage: extractProjectImageMock }));
+
 describe("PrinterStatus", () => {
   let client: EventEmitter & Pick<BambuLabClient, "emitCancellationRequested" | "emitStatus">;
   let status: PrinterStatus;
 
   beforeEach(() => {
+    extractProjectImageMock.mockReset();
     client = new EventEmitter() as EventEmitter & Pick<BambuLabClient, "emitCancellationRequested" | "emitStatus">;
     client.emitStatus = async (newStatus: Status, oldStatus: Status): Promise<void> => {
       client.emit("status", newStatus, oldStatus);
@@ -58,6 +63,35 @@ describe("PrinterStatus", () => {
       startedAt: Date.now()
     });
     vi.useRealTimers();
+  });
+
+  it("extracts and stores the project image for plate zero", async () => {
+    const image = Buffer.from("project-image");
+    const listener = vi.fn();
+    extractProjectImageMock.mockResolvedValue(image);
+    client.on("status", listener);
+
+    await status.onUpdate({
+      command: MessageCommand.PROJECT_FILE,
+      url: "https://example.com/project.3mf",
+      plate_idx: 0
+    });
+
+    expect(extractProjectImageMock).toHaveBeenCalledOnce();
+    expect(extractProjectImageMock).toHaveBeenCalledWith({
+      url: "https://example.com/project.3mf",
+      plate: "0"
+    });
+    expect(listener.mock.calls[0][0].projectImage).toBe(image);
+  });
+
+  it("does not extract a project image when the plate is absent", async () => {
+    await status.onUpdate({
+      command: MessageCommand.PROJECT_FILE,
+      url: "https://example.com/project.3mf"
+    });
+
+    expect(extractProjectImageMock).not.toHaveBeenCalled();
   });
 
   it("accumulates incremental status transitions and preserves the previous snapshot", async () => {

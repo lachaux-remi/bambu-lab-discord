@@ -52,7 +52,7 @@ export default class PrinterStatus {
         logger.debug({ amsMapping: data.ams_mapping, isMulticolor: newStatus.isMulticolor }, "Multicolor detection");
       }
 
-      if (data.url && data.url.startsWith("https://") && data.plate_idx) {
+      if (data.url && data.url.startsWith("https://") && data.plate_idx !== undefined) {
         newStatus.projectImage = await extractProjectImage({
           url: data.url,
           plate: String(data.plate_idx) as StringNumber
