@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { warnMock } = vi.hoisted(() => ({ warnMock: vi.fn() }));
@@ -33,6 +36,22 @@ describe("Bambu TLS configuration", () => {
     });
     expect((options.ca as Buffer).toString("ascii").match(/-----BEGIN CERTIFICATE-----/g)).toHaveLength(5);
     expect(warnMock).not.toHaveBeenCalled();
+  });
+
+  it("matches the reviewed upstream bundle metadata", async () => {
+    const directory = resolve("src/libs/bambu-tls");
+    const bundle = await readFile(resolve(directory, "bambu-printer-ca.pem"));
+    const metadata = JSON.parse(await readFile(resolve(".github/bambu-ca-bundle.json"), "utf8")) as {
+      revision: string;
+      upstreamSha256: string;
+      vendoredSha256: string;
+    };
+    const sha256 = (value: Buffer): string => createHash("sha256").update(value).digest("hex");
+
+    expect(metadata.revision).toMatch(/^[0-9a-f]{40}$/);
+    expect(sha256(bundle)).toBe(metadata.vendoredSha256);
+    expect(bundle.at(-1)).toBe(0x0a);
+    expect(sha256(bundle.subarray(0, -1))).toBe(metadata.upstreamSha256);
   });
 
   it("supports the explicit insecure fallback and warns only once", async () => {
