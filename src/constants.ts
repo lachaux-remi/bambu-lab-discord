@@ -1,3 +1,4 @@
+import { ForumTag } from "./enums";
 import type { ForumTagDefinition } from "./types/discord";
 
 const parseNumberSetting = (name: string, fallback: number, minimum: number, maximum: number): number => {
@@ -41,11 +42,11 @@ export const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || "";
 // Canonical tags we want to ensure exist in the forum channel (name and emoji)
 // Printer-specific tags are created dynamically when printers are added
 export const FORUM_TAG_DEFINITIONS: ForumTagDefinition[] = [
-  { name: "En cours", emoji: "⏳" },
-  { name: "Réussi", emoji: "✅" },
-  { name: "Échoué", emoji: "❌" },
-  { name: "En pause", emoji: "⏸️" },
-  { name: "Attention", emoji: "⚠️" },
-  { name: "Multicolore", emoji: "🌈" },
-  { name: "Monocolor", emoji: "🎨" }
+  { name: ForumTag.IN_PROGRESS, emoji: "⏳" },
+  { name: ForumTag.SUCCEEDED, emoji: "✅" },
+  { name: ForumTag.FAILED, emoji: "❌" },
+  { name: ForumTag.PAUSED, emoji: "⏸️" },
+  { name: ForumTag.ATTENTION, emoji: "⚠️" },
+  { name: ForumTag.MULTICOLOR, emoji: "🌈" },
+  { name: ForumTag.MONOCOLOR, emoji: "🎨" }
 ];

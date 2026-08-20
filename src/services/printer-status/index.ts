@@ -1,4 +1,4 @@
-import { MessageCommand, PrintState } from "../../enums";
+import { CommandResult, MessageCommand, PrintState } from "../../enums";
 import { getLogger } from "../../libs/logger";
 import { extractProjectImage } from "../../libs/project";
 import type { StringNumber } from "../../types/general";
@@ -132,7 +132,7 @@ export default class PrinterStatus {
         newStatus.remainingTime = Number(data.mc_remaining_time);
       }
     } else if (data.command === MessageCommand.STOP) {
-      if (data.result !== "success") {
+      if (data.result !== CommandResult.SUCCESS) {
         return;
       }
       newStatus.cancellationRequested = true;

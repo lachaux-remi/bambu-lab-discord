@@ -1,10 +1,10 @@
-import type { MessageCommand, PrintState } from "../enums";
+import type { LightMode, LightNode, MessageCommand, PrintState } from "../enums";
 import type { IntRange, StringNumber } from "./general";
 import type { PrintMessageCommand } from "./printer-messages";
 
 export interface LightReport {
-  node: string;
-  mode: "on" | "off";
+  node: LightNode;
+  mode: LightMode;
 }
 
 export interface PushStatusCommand extends PrintMessageCommand {

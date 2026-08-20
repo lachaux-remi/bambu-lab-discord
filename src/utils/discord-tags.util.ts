@@ -1,4 +1,4 @@
-import { PrintState } from "../enums";
+import { ForumTag, PrintState } from "../enums";
 import type { Status } from "../types/printer-status";
 
 /**
@@ -11,28 +11,28 @@ export const getDiscordTagsForStatus = (status: Status): string[] => {
 
   // Tag de couleur (toujours présent)
   if (status.isMulticolor) {
-    tags.push("Multicolore");
+    tags.push(ForumTag.MULTICOLOR);
   } else {
-    tags.push("Monocolor");
+    tags.push(ForumTag.MONOCOLOR);
   }
 
   // Tag d'état
   switch (status.state) {
     case PrintState.PREPARE:
     case PrintState.RUNNING:
-      tags.push("En cours");
+      tags.push(ForumTag.IN_PROGRESS);
       break;
     case PrintState.FINISH:
-      tags.push("Réussi");
+      tags.push(ForumTag.SUCCEEDED);
       break;
     case PrintState.FAILED:
-      tags.push("Échoué");
+      tags.push(ForumTag.FAILED);
       break;
     case PrintState.PAUSE:
-      tags.push("En pause");
+      tags.push(ForumTag.PAUSED);
       break;
     default:
-      tags.push("En cours");
+      tags.push(ForumTag.IN_PROGRESS);
   }
 
   return tags;
@@ -44,12 +44,12 @@ export const getDiscordTagsForStatus = (status: Status): string[] => {
  * @returns Tableau des noms de tags à appliquer
  */
 export const getInitialDiscordTags = (isMulticolor: boolean): string[] => {
-  const tags = ["En cours"];
+  const tags: string[] = [ForumTag.IN_PROGRESS];
 
   if (isMulticolor) {
-    tags.push("Multicolore");
+    tags.push(ForumTag.MULTICOLOR);
   } else {
-    tags.push("Monocolor");
+    tags.push(ForumTag.MONOCOLOR);
   }
 
   return tags;

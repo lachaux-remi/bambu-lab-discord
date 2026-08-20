@@ -1,7 +1,7 @@
 import EventEmitter from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MessageCommand, PrintState } from "../src/enums";
+import { LightMode, LightNode, MessageCommand, PrintState } from "../src/enums";
 import BambuLabClient from "../src/services/bambu-lab";
 import type { PrinterConfig } from "../src/types/printer-config";
 
@@ -376,6 +376,26 @@ describe("BambuLabClient MQTT lifecycle", () => {
     await screenshot;
 
     expect(takeScreenshotMock).toHaveBeenCalledWith("192.0.2.10", "access-code", "SERIAL-1", 6000);
+  });
+
+  it("uses the canonical chamber light protocol values", async () => {
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+    mqttClient.publish.mockClear();
+
+    client.turnOffChamberLight();
+    client.turnOnChamberLight();
+
+    const payloads = mqttClient.publish.mock.calls.map(call => JSON.parse(call[1]));
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        system: expect.objectContaining({ led_node: LightNode.CHAMBER, led_mode: LightMode.OFF })
+      }),
+      expect.objectContaining({
+        system: expect.objectContaining({ led_node: LightNode.CHAMBER, led_mode: LightMode.ON })
+      })
+    ]);
   });
 
   it("disconnect cancels and owns an in-flight initial connection", async () => {
