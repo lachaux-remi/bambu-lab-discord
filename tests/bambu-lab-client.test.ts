@@ -378,6 +378,88 @@ describe("BambuLabClient MQTT lifecycle", () => {
     expect(takeScreenshotMock).toHaveBeenCalledWith("192.0.2.10", "access-code", "SERIAL-1", 6000);
   });
 
+  it("serializes concurrent screenshots and restores an initially off chamber light between captures", async () => {
+    vi.useFakeTimers();
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+
+    const events: string[] = [];
+    const firstCapture = Promise.withResolvers<Buffer | null>();
+    const secondCapture = Promise.withResolvers<Buffer | null>();
+    mqttClient.publish.mockImplementation((_topic, payload) => {
+      const mode = JSON.parse(payload).system.led_mode as LightMode;
+      events.push(`light:${mode}`);
+    });
+    takeScreenshotMock
+      .mockImplementationOnce(() => {
+        events.push("capture:first");
+        return firstCapture.promise;
+      })
+      .mockImplementationOnce(() => {
+        events.push("capture:second");
+        return secondCapture.promise;
+      });
+
+    const first = client.takeScreenshotWithLight();
+    const second = client.takeScreenshotWithLight();
+    await vi.advanceTimersByTimeAsync(1_500);
+
+    expect(events).toEqual([`light:${LightMode.ON}`, "capture:first"]);
+    expect(takeScreenshotMock).toHaveBeenCalledTimes(1);
+
+    firstCapture.resolve(Buffer.from("first"));
+    await first;
+    await vi.advanceTimersByTimeAsync(1_500);
+
+    expect(events).toEqual([
+      `light:${LightMode.ON}`,
+      "capture:first",
+      `light:${LightMode.OFF}`,
+      `light:${LightMode.ON}`,
+      "capture:second"
+    ]);
+
+    secondCapture.resolve(Buffer.from("second"));
+    await second;
+
+    expect(events).toEqual([
+      `light:${LightMode.ON}`,
+      "capture:first",
+      `light:${LightMode.OFF}`,
+      `light:${LightMode.ON}`,
+      "capture:second",
+      `light:${LightMode.OFF}`
+    ]);
+  });
+
+  it("continues the screenshot queue after a capture fails", async () => {
+    vi.useFakeTimers();
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+    mqttClient.publish.mockClear();
+
+    takeScreenshotMock
+      .mockRejectedValueOnce(new Error("camera unavailable"))
+      .mockResolvedValueOnce(Buffer.from("next"));
+
+    const first = client.takeScreenshotWithLight();
+    const firstRejection = expect(first).rejects.toThrow("camera unavailable");
+    const second = client.takeScreenshotWithLight();
+
+    await vi.advanceTimersByTimeAsync(1_500);
+    await firstRejection;
+    expect(takeScreenshotMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_500);
+    await expect(second).resolves.toEqual(Buffer.from("next"));
+
+    expect(takeScreenshotMock).toHaveBeenCalledTimes(2);
+    const lightModes = mqttClient.publish.mock.calls.map(call => JSON.parse(call[1]).system.led_mode);
+    expect(lightModes).toEqual([LightMode.ON, LightMode.OFF, LightMode.ON, LightMode.OFF]);
+  });
+
   it("uses the canonical chamber light protocol values", async () => {
     const connection = client.connect();
     mqttClient.emit("connect");
