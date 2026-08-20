@@ -474,7 +474,7 @@ export default class BambuLabClient extends EventEmitter {
 
     const key = Object.keys(data)[0];
 
-    logger.debug({ key, data: data[key] }, "Received message");
+    logger.debug({ key }, "Received message");
 
     // Track chamber light state from lights_report
     const printData = data.print as Record<string, unknown> | undefined;

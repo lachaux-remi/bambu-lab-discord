@@ -91,6 +91,28 @@ describe("BambuLabClient MQTT lifecycle", () => {
     );
   });
 
+  it("never writes raw MQTT payload values to debug logs", async () => {
+    const sensitivePayload = JSON.stringify({
+      print: {
+        command: MessageCommand.PUSH_STATUS,
+        gcode_state: PrintState.RUNNING,
+        liveview: { ttcode_enc: "TTCODE-SENTINEL" },
+        md5: "MD5-SENTINEL",
+        tray_uuid: "TRAY-UUID-SENTINEL"
+      }
+    });
+
+    await (
+      client as unknown as {
+        onMessage: (packet: string) => Promise<void>;
+      }
+    ).onMessage(sensitivePayload);
+
+    const serializedLogs = JSON.stringify(loggerMock.debug.mock.calls);
+    expect(serializedLogs).not.toContain("SENTINEL");
+    expect(loggerMock.debug).toHaveBeenCalledWith({ key: "print" }, "Received message");
+  });
+
   it("bounds startup on a failed initial subscription while retaining mqtt.js retry ownership", async () => {
     const error = new Error("subscribe failed");
     mqttClient.subscribe.mockImplementation((_topic, callback) => callback(error));
