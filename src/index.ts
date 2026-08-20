@@ -1,6 +1,6 @@
 import { Application } from "./application";
 import { getLogger } from "./libs/logger";
-import { getConfig } from "./services/database";
+import { ConfigLoadError, getConfig } from "./services/database";
 import { initDiscordClient, shutdownDiscordClient } from "./services/discord/bot";
 import { registerCommands, setupCommandHandlers } from "./services/discord/commands";
 import { printerManager } from "./services/printer-manager";
@@ -49,7 +49,14 @@ process.once("SIGINT", () => void shutdown("SIGINT"));
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
 main().catch(async error => {
-  logger.error({ error }, "Failed to start bot");
+  if (error instanceof ConfigLoadError) {
+    logger.fatal(
+      { path: error.configPath, reason: error.reason, issues: error.issues },
+      "Failed to load printer configuration; refusing to start"
+    );
+  } else {
+    logger.error({ error }, "Failed to start bot");
+  }
   process.exitCode = 1;
   await application.stop().catch(shutdownError => {
     logger.error({ error: shutdownError }, "Failed to clean up after startup error");

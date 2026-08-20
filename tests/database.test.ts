@@ -6,6 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PrinterConfig } from "../src/types/printer-config";
 
+const loggerMock = vi.hoisted(() => ({
+  debug: vi.fn(),
+  error: vi.fn(),
+  fatal: vi.fn(),
+  info: vi.fn()
+}));
+
+vi.mock("../src/libs/logger", () => ({ getLogger: () => loggerMock }));
+
 const fsTracking = vi.hoisted(() => ({
   descriptorPaths: new Map<number, string>(),
   directoryFsyncError: undefined as NodeJS.ErrnoException | undefined,
@@ -85,6 +94,7 @@ describe.sequential("configuration persistence", () => {
     fsTracking.descriptorPaths.clear();
     fsTracking.directoryFsyncError = undefined;
     fsTracking.events.length = 0;
+    vi.clearAllMocks();
     vi.resetModules();
   });
 
@@ -192,6 +202,48 @@ describe.sequential("configuration persistence", () => {
     writeFileSync(join(workingDirectory, "config", "printers.json"), "{not-json", "utf8");
 
     expect(() => database.loadConfig()).toThrow();
+  });
+
+  it("reports every invalid printer field without exposing secrets or logging the failure twice", async () => {
+    mkdirSync(join(workingDirectory, "config"));
+    const accessCode = "access-code-must-not-appear";
+    writeFileSync(
+      join(workingDirectory, "config", "printers.json"),
+      JSON.stringify({
+        version: 1,
+        printers: {
+          "herox-p1s": {
+            id: "wrong-id",
+            name: 42,
+            ip: "192.0.2.10",
+            port: 8883.5,
+            rtcPort: 6000,
+            accessCode,
+            forumChannelId: null,
+            enabled: "yes"
+          }
+        }
+      }),
+      "utf8"
+    );
+    const database = await import("../src/services/database");
+
+    let failure: Error | undefined;
+    try {
+      database.loadConfig();
+    } catch (error) {
+      failure = error as Error;
+    }
+
+    expect(failure?.message).toContain(join(workingDirectory, "config", "printers.json"));
+    expect(failure?.message).toContain('printers.herox-p1s.id must equal "herox-p1s"');
+    expect(failure?.message).toContain("printers.herox-p1s.name must be a string");
+    expect(failure?.message).toContain("printers.herox-p1s.serial is required and must be a string");
+    expect(failure?.message).toContain("printers.herox-p1s.port must be an integer");
+    expect(failure?.message).toContain("printers.herox-p1s.forumChannelId must be a string");
+    expect(failure?.message).toContain("printers.herox-p1s.enabled must be a boolean");
+    expect(failure?.message).not.toContain(accessCode);
+    expect(loggerMock.fatal).not.toHaveBeenCalled();
   });
 
   it("encrypts access codes and decrypts them after reload", async () => {

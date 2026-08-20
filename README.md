@@ -85,7 +85,14 @@ BAMBU_TLS_INSECURE=false
 
 # Mode debug (optionnel)
 DEBUG=false
+
+# Format des logs : auto (lisible sur terminal local, JSON sinon), pretty ou json
+LOG_FORMAT=auto
 ```
+
+Par défaut, les logs utilisent une présentation lisible dans un terminal local et restent en JSON structuré en
+production ou lorsque la sortie n'est pas un TTY (notamment sous Docker). `LOG_FORMAT=pretty` ou `LOG_FORMAT=json`
+permet de forcer explicitement le format.
 
 Lorsqu'une imprimante déjà connectée devient indisponible, MQTT continue de tenter une reconnexion toutes les 5
 secondes. Les trois premiers échecs sont journalisés immédiatement, puis les erreurs sont regroupées au maximum une fois
@@ -156,7 +163,9 @@ seule fois au démarrage lorsqu'il est activé. La variable accepte uniquement `
 Le bundle couvre les autorités BBL d'origine et CA2 RSA/ECC actuellement publiées par BambuStudio. Une nouvelle CA ou
 un nouveau modèle/firmware utilisant une autre chaîne nécessitera une mise à jour de ce bundle. Les ports pris en charge
 restent les ports MQTT et RTC configurés pour l'imprimante (8883 et 6000 par défaut). La provenance, la licence amont et
-les empreintes du bundle sont documentées dans [`src/libs/bambu-tls/README.md`](src/libs/bambu-tls/README.md).
+les empreintes du bundle sont documentées dans [`src/libs/bambu-tls/README.md`](src/libs/bambu-tls/README.md). Un
+workflow hebdomadaire signale dans une issue tout changement du fichier officiel BambuStudio, sans remplacer ni faire
+confiance automatiquement à de nouveaux certificats.
 
 ## Utilisation
 

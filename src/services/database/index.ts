@@ -22,6 +22,34 @@ const ACTIVE_THREADS_PATH = join(process.cwd(), "config", "active-threads.json")
 const CONFIG_VERSION = 1;
 const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
 
+class ConfigValidationError extends Error {
+  public constructor(public readonly issues: readonly string[]) {
+    super(`Invalid printer configuration:\n- ${issues.join("\n- ")}`);
+    this.name = "ConfigValidationError";
+  }
+}
+
+export class ConfigLoadError extends Error {
+  public readonly configPath: string;
+  public readonly issues?: readonly string[];
+  public readonly reason: string;
+
+  public constructor(configPath: string, cause: unknown) {
+    const causeMessage = cause instanceof Error ? cause.message : "Unknown configuration loading error";
+    const reason = cause instanceof ConfigValidationError ? "Configuration schema validation failed" : causeMessage;
+    super(
+      `Failed to load printer configuration from ${configPath}; refusing to use an empty default: ${causeMessage}`,
+      {
+        cause
+      }
+    );
+    this.name = "ConfigLoadError";
+    this.configPath = configPath;
+    this.issues = cause instanceof ConfigValidationError ? cause.issues : undefined;
+    this.reason = reason;
+  }
+}
+
 export interface PrintIdentity {
   subtaskId?: string;
   taskId?: string;
@@ -130,26 +158,49 @@ function assertValidConfig(value: unknown): asserts value is BotConfig {
   }
 
   const config = value as Partial<BotConfig>;
-  if (config.version !== CONFIG_VERSION || !config.printers || typeof config.printers !== "object") {
-    throw new Error(`Unsupported or invalid printer configuration (expected version ${CONFIG_VERSION})`);
+  const issues: string[] = [];
+  if (config.version !== CONFIG_VERSION) {
+    issues.push(`version must equal ${CONFIG_VERSION}`);
   }
 
-  for (const [id, printerValue] of Object.entries(config.printers)) {
-    const printer = printerValue as Partial<PrinterConfig>;
-    if (
-      !printer ||
-      printer.id !== id ||
-      typeof printer.name !== "string" ||
-      typeof printer.ip !== "string" ||
-      typeof printer.serial !== "string" ||
-      typeof printer.accessCode !== "string" ||
-      typeof printer.forumChannelId !== "string" ||
-      typeof printer.enabled !== "boolean" ||
-      !Number.isInteger(printer.port) ||
-      !Number.isInteger(printer.rtcPort)
-    ) {
-      throw new Error(`Invalid configuration for printer ${id}`);
+  if (!config.printers || typeof config.printers !== "object" || Array.isArray(config.printers)) {
+    issues.push("printers is required and must be an object");
+  } else {
+    for (const [id, printerValue] of Object.entries(config.printers)) {
+      if (!printerValue || typeof printerValue !== "object" || Array.isArray(printerValue)) {
+        issues.push(`printers.${id} must be an object`);
+        continue;
+      }
+
+      const printer = printerValue as Partial<PrinterConfig>;
+      if (printer.id !== id) {
+        issues.push(`printers.${id}.id must equal "${id}"`);
+      }
+
+      for (const field of ["name", "ip", "serial", "accessCode", "forumChannelId"] as const) {
+        if (typeof printer[field] !== "string") {
+          const requirement = printer[field] === undefined ? "is required and must be a string" : "must be a string";
+          issues.push(`printers.${id}.${field} ${requirement}`);
+        }
+      }
+
+      if (typeof printer.enabled !== "boolean") {
+        const requirement = printer.enabled === undefined ? "is required and must be a boolean" : "must be a boolean";
+        issues.push(`printers.${id}.enabled ${requirement}`);
+      }
+
+      for (const field of ["port", "rtcPort"] as const) {
+        if (!Number.isInteger(printer[field])) {
+          const requirement =
+            printer[field] === undefined ? "is required and must be an integer" : "must be an integer";
+          issues.push(`printers.${id}.${field} ${requirement}`);
+        }
+      }
     }
+  }
+
+  if (issues.length > 0) {
+    throw new ConfigValidationError(issues);
   }
 }
 
@@ -271,11 +322,7 @@ export const loadConfig = (): BotConfig => {
     logger.info({ printerCount: Object.keys(config.printers).length }, "Config loaded");
     return config;
   } catch (error) {
-    logger.fatal(
-      { error, path: CONFIG_PATH },
-      "Failed to load printer configuration; refusing to use an empty default"
-    );
-    throw error;
+    throw new ConfigLoadError(CONFIG_PATH, error);
   }
 };
 

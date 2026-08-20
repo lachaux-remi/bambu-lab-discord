@@ -8,6 +8,14 @@ The bundle was copied from `resources/cert/printer.cer` in the official Bambu La
 on 2026-08-19. The upstream file SHA-256 is
 `36f2bcee347ec7adce719b5fd350099591a4d3d0ec4e039c7019890d78e152a0`; the vendored file has one final LF added and
 SHA-256 `168852cde67cd9c7648de5f95b46f7b950d1627966d2da6a968fd9ef9d034910`. Certificate DER data is unchanged.
+These machine-readable provenance values are kept in
+[`bambu-ca-bundle.json`](../../../.github/bambu-ca-bundle.json).
+
+The `Monitor Bambu printer CA bundle` GitHub Actions workflow compares the official file on BambuStudio's `master`
+branch with the reviewed upstream SHA-256 every week and on manual dispatch. If it changes, the workflow opens one
+deduplicated review issue. It never updates this bundle, commits certificates, or feeds downloaded data into a build or
+release. A maintainer must inspect any new certificates and provenance, update the vendored file and metadata in a
+reviewed change, and retain strict TLS validation.
 
 BambuStudio is distributed under
 [GNU AGPL-3.0](https://github.com/bambulab/BambuStudio/blob/9a530f77c23d8c3430d1dbef02e103cd8bd6480e/LICENSE).
