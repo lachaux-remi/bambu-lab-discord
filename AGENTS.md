@@ -5,7 +5,7 @@ This file provides guidance to all coding agents working in this repository.
 ## Git and Pull Request Policy
 
 - Agents may create branches, commit changes, push branches, and open pull requests.
-- Pull request titles must be written in English.
+- Commit subjects and pull request titles must be written in English with a Conventional Commit prefix.
 - Pull request descriptions must be written in French.
 - Every pull request must be reviewed by the repository owner before it is merged.
 - Only the repository owner may merge pull requests. Agents must never merge a pull request or enable auto-merge.
@@ -35,60 +35,41 @@ Bambu camera protocol. All images are attached directly to Discord messages (no 
 - `pnpm run debug:mqtt` - Debug MQTT messages from printer
 - `pnpm run debug:discord-test` - Test Discord notifications
 - `pnpm run debug:rtc` - Test screenshot capture from printer
+- `pnpm run dev:mqtt-emulator` - Run the local MQTT printer emulator
 
-### Linting
+### Validation
 
-- ESLint configuration: `eslint.config.mjs`
-- Prettier configuration: `.prettierrc`
+- `pnpm run lint` - Run ESLint and Prettier checks
+- `pnpm run test` - Run the Vitest suite
+- `pnpm run test:coverage` - Run tests with coverage thresholds
+- `pnpm run build` - Type-check and compile production output
 
 ## Project Structure
 
 ```
 src/
-├── index.ts              # Main application entry point
-├── constants.ts          # Environment variables & configuration
-├── enums.ts              # MessageCommand, PrintState enums
-├── libs/                 # Reusable stateless library modules
-│   ├── logger/           # Pino-based logging
-│   ├── project/          # Project file handling (extract preview image)
-│   └── rtc/              # RTC screenshot capture (native Bambu protocol)
-├── services/             # Stateful business logic services
-│   ├── bambu-lab/        # MQTT client (BambuLabClient class)
-│   ├── database/         # JSON file persistence for printer configs
-│   ├── discord/          # Discord bot service
-│   │   ├── index.ts      # Exports
-│   │   ├── bot.ts        # Discord client, threads, forum tags
-│   │   ├── commands/     # Slash commands (/printer add, remove, list, etc.)
-│   │   └── embeds/       # Discord embed builders for notifications
-│   │       ├── base.ts
-│   │       ├── print-started.ts
-│   │       ├── print-progress.ts
-│   │       ├── print-finished.ts
-│   │       ├── print-failed.ts
-│   │       ├── print-cancelled.ts
-│   │       ├── print-paused.ts
-│   │       ├── print-resumed.ts
-│   │       ├── print-stopped.ts
-│   │       └── print-recovery.ts
-│   ├── printer-manager/  # Manages multiple printer instances
-│   └── printer-status/   # State manager (PrinterStatus class)
-├── types/                # TypeScript type definitions (.d.ts files)
-│   ├── client-events.d.ts
-│   ├── discord.d.ts
-│   ├── general.d.ts
-│   ├── printer-config.d.ts   # PrinterConfig, BotConfig interfaces
-│   ├── printer-messages.d.ts
-│   ├── printer-status.d.ts
-│   ├── project-file.d.ts
-│   └── push-status.d.ts
-├── utils/                # Utility functions
-│   ├── discord-tags.util.ts
-│   ├── print.util.ts
-│   └── time.util.ts
-└── tools/                # Debug/development tools
-    ├── debug-mqtt.ts
-    ├── debug-rtc.ts
-    └── debug-discord-test.ts
+├── index.ts                 # Composition root and process lifecycle
+├── application.ts           # Ordered startup and idempotent shutdown
+├── constants.ts             # Environment-backed settings
+├── enums.ts                 # MessageCommand, PrintState, ForumTag
+├── libs/
+│   ├── bambu-tls/           # Trusted Bambu CA bundle and TLS helpers
+│   ├── logger/              # Pino-based structured logging
+│   ├── project/             # 3mf project preview extraction
+│   └── rtc/                 # Native Bambu camera protocol
+├── services/
+│   ├── bambu-lab/           # MQTT client and camera/light control
+│   ├── database/            # Encrypted, atomic JSON persistence
+│   ├── discord/             # Discord client, commands, embeds, forum tags
+│   ├── printer-manager/     # Printer lifecycle and notification coordinator
+│   └── printer-status/      # Cumulative MQTT status model
+├── tools/
+│   ├── debug-discord-test.ts
+│   ├── debug-mqtt.ts
+│   ├── debug-rtc.ts
+│   └── mock-mqtt-printer.ts
+├── types/                   # Shared TypeScript declarations
+└── utils/                   # Discord tag, print, and time utilities
 ```
 
 ## Architecture
@@ -97,9 +78,11 @@ src/
 
 **PrinterManager** (`src/services/printer-manager/index.ts`)
 
-- Manages multiple BambuLabClient instances
-- Starts/stops printers based on configuration
-- Handles status changes and dispatches to Discord
+- Owns `BambuLabClient` instances and serializes start, stop, and restart operations per printer.
+- Starts enabled printers; ordinary MQTT failures retry in the background, while startup TLS certificate failures fail
+  closed.
+- Owns print-state transitions, Discord delivery, progress thresholds, chamber-light timers, and active-thread recovery.
+- Exposes live status and screenshot operations to Discord commands.
 
 **BambuLabClient** (`src/services/bambu-lab/index.ts`)
 
@@ -108,6 +91,9 @@ src/
 - Subscribes to `device/{SERIAL}/report` topic
 - Publishes "pushall" request to `device/{SERIAL}/request` on connection
 - Emits `status` events with new and old status objects
+- Serializes incoming MQTT processing through a promise queue.
+- Camera captures for one client must remain serialized so light restoration completes before the next capture; the queue
+  must continue after a failed capture.
 
 **PrinterStatus** (`src/services/printer-status/index.ts`)
 
@@ -118,12 +104,12 @@ src/
 - Detects multicolor prints via AMS mapping
 - Maintains cumulative status object and emits changes to BambuLabClient
 
-**Main Application** (`src/index.ts`)
+**Application** (`src/application.ts`, `src/index.ts`)
 
-- State machine that listens for status events and triggers Discord notifications
-- Tracks `lastProgressPercent` to send notifications at configurable intervals
-- Manages thread creation and tag updates for forum mode
-- Uses `printThreads` Map to track active print threads by unique key
+- Loads and validates configuration before startup.
+- Starts Discord before printers and stops printers before Discord.
+- Rolls back started modules after startup failure and makes shutdown idempotent.
+- Reconciles configured forum tags and registers slash commands before printer connections start.
 
 ### Print State Flow
 
@@ -147,32 +133,30 @@ State transitions trigger specific Discord messages:
 
 ### Discord Integration
 
-**Webhook Mode** (fallback):
+The application uses Discord bot mode and requires `DISCORD_BOT_TOKEN`. Each printer stores its own forum channel; there
+is no webhook fallback or global parent-channel setting.
 
-- Simple webhook notifications
-- No thread management
-
-**Bot Mode** (when `DISCORD_BOT_TOKEN` and `DISCORD_PARENT_CHANNEL_ID` are set):
-
-- Creates forum posts (threads) per print job
-- Auto-syncs forum tags on startup (`ensureForumTags`)
-- Updates thread tags based on print state
+- Creates a forum post per print job and persists the active thread for restart recovery.
+- Reconciles canonical tags and configured printer-name tags at startup while preserving unrelated forum tags.
+- Serializes forum tag mutations per channel to avoid lost concurrent updates.
+- Updates thread tags based on print state.
 - Canonical tags defined in `FORUM_TAG_DEFINITIONS`:
   - States: En cours, Réussi, Échoué, En pause, Attention
   - Colors: Multicolore, Monocolor
 
 ### Libraries
 
-**Discord** (`src/libs/discord/`)
+**Discord** (`src/services/discord/`)
 
-- `index.ts`: WebhookClient wrapper, exports bot functions
-- `bot.ts`: Full Discord.js client for thread/forum management
-  - `initDiscordClient()`: Initialize bot and sync forum tags
+- `bot.ts`: Discord.js client for forum/thread management
+  - `initDiscordClient()`: Initialize the bot
+  - `reconcileConfiguredForumTags()`: Reconcile canonical and printer tags on startup
   - `createPrintThread()`: Create forum post with initial embed
   - `sendToThread()`: Send message to existing thread
   - `updateThreadTags()`: Update thread tags based on state
-  - `archiveThread()`: Archive completed threads
   - `ensurePrinterTag()`: Create a tag for a printer in forum
+- `commands/`: Administrative slash-command definitions and handlers
+- `embeds/`: Notification embed builders
 
 **RTC** (`src/libs/rtc/index.ts`)
 
@@ -180,9 +164,10 @@ State transitions trigger specific Discord messages:
 - Direct TLS connection to printer on configurable port (default 6000)
 - No external service required (ffmpeg, go2rtc, etc.)
 - Functions:
-  - `takeScreenshot(ip, accessCode, port?)`: Captures a single JPEG frame from the printer
-  - `takeScreenshotFromBambuStream(ip, accessCode, port?)`: Low-level function for direct stream access
+  - `takeScreenshot(ip, accessCode, serial, port?)`: Captures a single JPEG frame from the printer
+  - `takeScreenshotFromBambuStream(ip, accessCode, serial, port?)`: Low-level stream access
 - Authentication uses username "bblp" and printer's access code
+- The configured serial is used as the TLS server identity.
 
 **Project** (`src/libs/project/index.ts`)
 
@@ -198,20 +183,28 @@ State transitions trigger specific Discord messages:
 
 **Database** (`src/services/database/index.ts`)
 
-- JSON file persistence for printer configurations
-- Stored in `config/printers.json`
+- Validated JSON persistence for printer configurations and active Discord threads.
+- Uses atomic file replacement, restrictive permissions, file and directory synchronization, and fail-closed loading.
+- Encrypts access codes with AES-256-GCM using `CONFIG_ENCRYPTION_KEY`; plaintext values are migrated on load.
+- Stores printer configuration in `config/printers.json` and recovery mappings in `config/active-threads.json`.
 - CRUD operations: `addPrinter`, `removePrinter`, `updatePrinter`, `getPrinter`, `getAllPrinters`
 
 ## Slash Commands
 
 The bot supports the following Discord slash commands:
 
-| Command                                                                        | Description                    |
-|--------------------------------------------------------------------------------|--------------------------------|
-| `/printer add <name> <ip> <serial> <access_code> <channel> [port] [rtc_port]`  | Add a new printer              |
-| `/printer remove <name>`                                                       | Remove a printer               |
-| `/printer list`                                                                | List all configured printers   |
-| `/printer edit <name> [options] [rtc_port]`                                    | Edit a printer's configuration |
+| Command                                                                       | Description                                  |
+| ----------------------------------------------------------------------------- | -------------------------------------------- |
+| `/printer add <name> <ip> <serial> <access_code> <channel> [port] [rtc_port]` | Add and immediately start a printer          |
+| `/printer remove <name>`                                                      | Stop and remove a printer                    |
+| `/printer list`                                                               | List configured printers and runtime state   |
+| `/printer status <name>`                                                      | Show connection and current print details    |
+| `/printer screenshot <name>`                                                  | Post a real camera test in the printer forum |
+| `/printer edit <name> [options]`                                              | Edit, enable, disable, or restart a printer  |
+
+`/printer edit` supports display name, IP, serial, access code, forum channel, MQTT port, RTC port, and `enabled`.
+Network ports are restricted to 1–65535. Configuration changes that affect a running connection restart the printer;
+disabling it stops it immediately. All printer commands require Discord's **Manage Guild** permission.
 
 ## Environment Variables
 
@@ -221,15 +214,32 @@ Required configuration in `.env`:
 # Discord bot token (required)
 DISCORD_BOT_TOKEN=<bot token>
 
+# Required as soon as at least one printer exists (base64-encoded 32-byte key)
+CONFIG_ENCRYPTION_KEY=<openssl rand -base64 32>
+
 # Notification customization
 NOTIFICATION_PERCENT=5  # default
 NOTIFICATION_FOOTER_TEXT=Bambu Lab Discord  # default
 NOTIFICATION_FOOTER_ICON=<url>  # optional
 NOTIFICATION_COLOR=#24a543  # default
 
+# Operational delays
+ERROR_LOG_COOLDOWN_MINUTES=1
+MQTT_CONNECT_TIMEOUT_MS=30000
+CHAMBER_LIGHT_OFF_DELAY_MINUTES=5
+CHAMBER_LIGHT_WARMUP_MS=1500
+
+# TLS validation; true is a temporary, dangerous diagnostic fallback only
+BAMBU_TLS_INSECURE=false
+
 # Debug logging
 DEBUG=false  # default
+LOG_FORMAT=auto
 ```
+
+MQTT and RTC verify the printer certificate against the bundled Bambu CA set in `src/libs/bambu-tls/`. Keep certificate
+validation enabled by default. The weekly `bambu-ca-bundle.yml` workflow reports upstream CA changes without trusting or
+installing them automatically.
 
 ## TypeScript Configuration
 
@@ -246,6 +256,16 @@ DEBUG=false  # default
 - Curly braces required for all control structures
 - Line width: 120 characters
 
+## Pull Requests and Releases
+
+- Release Please runs only after CI succeeds on `master`, maintains the release pull request, and publishes semver-tagged
+  Docker images after the repository owner merges the release pull request.
+- Release pull request titles must retain the conventional English Release Please format.
+- Never replace a Release Please pull request body manually. Preserve both exact `---` separators and all generated
+  content between them; Release Please reparses that machine-generated block to create the tag.
+- Localize release text through `release-please-config.json`, not through manual edits to a generated release PR body.
+- The `release-pr-body.yml` workflow validates these invariants for `release-please--*` branches.
+
 ## Key Types
 
 - `PrinterConfig`: Configuration for a single printer (IP, serial, access code, forum channel, etc.)
@@ -257,8 +277,9 @@ DEBUG=false  # default
 
 ## Data Storage
 
-Printer configurations are stored in `config/printers.json` (gitignored for security).
-This file contains sensitive information like access codes.
+Printer configurations are stored in `config/printers.json`; active Discord thread mappings are stored in
+`config/active-threads.json`. Both are gitignored. Access codes are encrypted at rest, but these files and
+`CONFIG_ENCRYPTION_KEY` remain sensitive and must never be committed or logged.
 
 Example structure:
 
@@ -271,17 +292,20 @@ Example structure:
       "name": "P1S Bureau",
       "ip": "192.168.1.100",
       "port": 8883,
+      "rtcPort": 6000,
       "serial": "ABC123",
-      "accessCode": "xxx",
+      "accessCode": "enc:v1:<encrypted-value>",
       "forumChannelId": "123456789",
-      "enabled": true
+      "enabled": true,
+      "createdAt": 1787240000000,
+      "updatedAt": 1787240000000
     }
   }
 }
 ```
 
-## Known Improvements To Consider
+## Diagnostic Data
 
-1. **AWS SDK Migration**: Currently using AWS SDK v2 (`aws-sdk`), should migrate to v3 (`@aws-sdk/client-s3`)
-2. **Unused utilities in `print.util.ts`**: `isMulticolorPrintV2` and `getFilamentCount` are defined but not currently
-   used
+`pnpm run debug:mqtt` writes a sanitized NDJSON capture. It redacts known credentials and pseudonymizes identifiers for
+one capture, but agents and reviewers must still inspect generated diagnostics before sharing them. Never expose printer
+access codes, Discord tokens, encryption keys, broker URLs, or unsanitized MQTT payloads.
