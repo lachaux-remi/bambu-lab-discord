@@ -246,6 +246,29 @@ describe.sequential("configuration persistence", () => {
     expect(loggerMock.fatal).not.toHaveBeenCalled();
   });
 
+  it.each([0, 65_536])("rejects a network port outside the valid range: %s", async port => {
+    mkdirSync(join(workingDirectory, "config"));
+    writeFileSync(
+      join(workingDirectory, "config", "printers.json"),
+      JSON.stringify({
+        version: 1,
+        printers: {
+          "p1s-bureau": {
+            ...printerInput,
+            id: "p1s-bureau",
+            port,
+            createdAt: 1_000,
+            updatedAt: 1_000
+          }
+        }
+      }),
+      "utf8"
+    );
+    const database = await import("../src/services/database");
+
+    expect(() => database.loadConfig()).toThrow(`printers.p1s-bureau.port must be between 1 and 65535`);
+  });
+
   it("encrypts access codes and decrypts them after reload", async () => {
     process.env.CONFIG_ENCRYPTION_KEY = randomBytes(32).toString("base64");
     const database = await import("../src/services/database");

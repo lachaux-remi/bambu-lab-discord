@@ -120,8 +120,11 @@ Une fois le bot démarré, utilisez ces commandes Discord :
 | `/printer add <name> <ip> <serial> <access_code> <channel>` | Ajouter une imprimante                 |
 | `/printer remove <name>`                                    | Supprimer une imprimante               |
 | `/printer list`                                             | Lister les imprimantes configurées     |
-| `/printer edit <name> [options]`                            | Modifier une imprimante                |
+| `/printer status <name>`                                    | Afficher l'état détaillé               |
+| `/printer edit <name> [options]`                            | Modifier et activer/désactiver         |
 | `/printer screenshot <name>`                                | Publier une capture caméra de test     |
+
+`/printer edit` permet notamment de modifier les ports MQTT/RTC et d'activer ou désactiver immédiatement l'imprimante.
 
 ### Exemple d'ajout d'imprimante
 

@@ -173,6 +173,26 @@ describe("PrinterManager public seam", () => {
     expect(printerManager.getPrinterStatus(config.id)).toEqual({ running: true, connected: true });
   });
 
+  it("exposes a read-only summary of the latest print status", async () => {
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+
+    await mocks.clients[0].emitStatus(status(PrintState.RUNNING), status(PrintState.PREPARE, 0));
+
+    expect(printerManager.getPrinterStatus(config.id)).toEqual({
+      running: true,
+      connected: true,
+      print: {
+        state: PrintState.RUNNING,
+        project: "Benchy",
+        progressPercent: 25,
+        currentLayer: 25,
+        maxLayers: 100,
+        remainingTime: 60
+      }
+    });
+  });
+
   it("captures a screenshot through the running printer", async () => {
     const screenshot = Buffer.from("jpeg");
     const { printerManager } = await import("../src/services/printer-manager");

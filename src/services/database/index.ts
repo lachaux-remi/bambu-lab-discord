@@ -12,6 +12,7 @@ import {
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { dirname, join } from "path";
 
+import { MAX_NETWORK_PORT, MIN_NETWORK_PORT } from "../../constants";
 import { getLogger } from "../../libs/logger";
 import type { BotConfig, PrinterConfig } from "../../types/printer-config";
 
@@ -194,6 +195,8 @@ function assertValidConfig(value: unknown): asserts value is BotConfig {
           const requirement =
             printer[field] === undefined ? "is required and must be an integer" : "must be an integer";
           issues.push(`printers.${id}.${field} ${requirement}`);
+        } else if (printer[field]! < MIN_NETWORK_PORT || printer[field]! > MAX_NETWORK_PORT) {
+          issues.push(`printers.${id}.${field} must be between ${MIN_NETWORK_PORT} and ${MAX_NETWORK_PORT}`);
         }
       }
     }
@@ -331,6 +334,7 @@ export const loadConfig = (): BotConfig => {
  */
 export const saveConfig = (config: BotConfig): boolean => {
   try {
+    assertValidConfig(config);
     const encryptionKey = getConfigEncryptionKey(config);
     writeJsonAtomic(CONFIG_PATH, createPersistedConfig(config, encryptionKey));
     logger.debug("Config saved");
