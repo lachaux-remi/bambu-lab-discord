@@ -52,6 +52,7 @@ export default class BambuLabClient extends EventEmitter {
   private stopping: boolean = false;
   private chamberLightOn: boolean = false;
   private messageQueue: Promise<void> = Promise.resolve();
+  private screenshotQueue: Promise<void> = Promise.resolve();
 
   public constructor(
     config: PrinterConfig,
@@ -417,23 +418,31 @@ export default class BambuLabClient extends EventEmitter {
    * Capture a screenshot, turning on the chamber light beforehand if it is off.
    * The light is turned off again after capture only if it was off before.
    */
-  public async takeScreenshotWithLight(): Promise<Buffer | null> {
-    const wasLightOn = this.chamberLightOn;
+  public takeScreenshotWithLight(): Promise<Buffer | null> {
+    const screenshot = this.screenshotQueue.then(async () => {
+      const wasLightOn = this.chamberLightOn;
 
-    if (!wasLightOn) {
-      logger.debug({ printer: this.config.name }, "Chamber light was off, turning on for screenshot");
-      this.turnOnChamberLight();
-      await new Promise(resolve => setTimeout(resolve, CHAMBER_LIGHT_WARMUP_MS));
-    }
-
-    try {
-      return await takeScreenshot(this.config.ip, this.config.accessCode, this.config.serial, this.config.rtcPort);
-    } finally {
       if (!wasLightOn) {
-        logger.debug({ printer: this.config.name }, "Turning off chamber light after screenshot");
-        this.turnOffChamberLight();
+        logger.debug({ printer: this.config.name }, "Chamber light was off, turning on for screenshot");
+        this.turnOnChamberLight();
+        await new Promise(resolve => setTimeout(resolve, CHAMBER_LIGHT_WARMUP_MS));
       }
-    }
+
+      try {
+        return await takeScreenshot(this.config.ip, this.config.accessCode, this.config.serial, this.config.rtcPort);
+      } finally {
+        if (!wasLightOn) {
+          logger.debug({ printer: this.config.name }, "Turning off chamber light after screenshot");
+          this.turnOffChamberLight();
+        }
+      }
+    });
+
+    this.screenshotQueue = screenshot.then(
+      () => undefined,
+      () => undefined
+    );
+    return screenshot;
   }
 
   public isConnected(): boolean {
