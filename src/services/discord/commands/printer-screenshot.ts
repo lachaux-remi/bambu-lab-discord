@@ -1,5 +1,6 @@
 import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
+import { ForumTag } from "../../../enums";
 import { getPrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
 import { createPrintThread } from "../bot";
@@ -34,7 +35,7 @@ export const handlePrinterScreenshot = async (interaction: ChatInputCommandInter
     `📸 Test caméra — ${printer.name}`,
     embed,
     [{ name: "screenshot.jpg", buffer: screenshot }],
-    ["Attention", printer.name],
+    [ForumTag.ATTENTION, printer.name],
     printer.forumChannelId
   );
 

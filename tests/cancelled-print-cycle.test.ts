@@ -1,7 +1,7 @@
 import EventEmitter from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MessageCommand, PrintState } from "../src/enums";
+import { CommandResult, MessageCommand, PrintState } from "../src/enums";
 import type { PrinterConfig } from "../src/types/printer-config";
 
 const mocks = vi.hoisted(() => ({
@@ -105,7 +105,7 @@ describe("cancelled print MQTT cycle", () => {
   it("routes a successful stop followed by PAUSE then FAILED as a cancellation", async () => {
     await startPrinter();
     startPausedPrint();
-    report({ command: MessageCommand.STOP, reason: "success", result: "success" });
+    report({ command: MessageCommand.STOP, reason: CommandResult.SUCCESS, result: CommandResult.SUCCESS });
     report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.PAUSE, mc_percent: 78 });
     report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.FAILED, mc_percent: 0 });
 
@@ -117,7 +117,7 @@ describe("cancelled print MQTT cycle", () => {
     await startPrinter();
     report({ command: MessageCommand.PROJECT_FILE, subtask_name: "Fixture print", plate_idx: 1 });
     report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.RUNNING, mc_percent: 78 });
-    report({ command: MessageCommand.STOP, reason: "success", result: "success" });
+    report({ command: MessageCommand.STOP, reason: CommandResult.SUCCESS, result: CommandResult.SUCCESS });
     report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.FAILED, mc_percent: 0 });
 
     await vi.waitFor(() => expect(mocks.printCancelled).toHaveBeenCalledOnce());
@@ -127,7 +127,7 @@ describe("cancelled print MQTT cycle", () => {
   it("keeps a failed stop as a genuine print failure", async () => {
     await startPrinter();
     startPausedPrint();
-    report({ command: MessageCommand.STOP, reason: "failed", result: "failed" });
+    report({ command: MessageCommand.STOP, reason: CommandResult.FAILED, result: CommandResult.FAILED });
     report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.FAILED, mc_percent: 0 });
 
     await vi.waitFor(() => expect(mocks.printFailed).toHaveBeenCalledOnce());
@@ -146,7 +146,7 @@ describe("cancelled print MQTT cycle", () => {
   it("does not carry a successful stop into the next project", async () => {
     await startPrinter();
     startPausedPrint();
-    report({ command: MessageCommand.STOP, reason: "success", result: "success" });
+    report({ command: MessageCommand.STOP, reason: CommandResult.SUCCESS, result: CommandResult.SUCCESS });
     report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.FAILED, mc_percent: 0 });
     await vi.waitFor(() => expect(mocks.printCancelled).toHaveBeenCalledOnce());
     mocks.printCancelled.mockClear();

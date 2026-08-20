@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 
 import { DISCORD_BOT_TOKEN, FORUM_TAG_DEFINITIONS } from "../../constants";
+import { ForumTag } from "../../enums";
 import { getLogger } from "../../libs/logger";
 import type { DiscordFileAttachment, ForumTagPayload } from "../../types/discord";
 
@@ -282,7 +283,8 @@ export const createPrintThread = async (
       }
     }
 
-    const appliedTags = tags && tags.length ? getTagIdsForNames(forum, tags) : getTagIdsForNames(forum, ["En cours"]);
+    const appliedTags =
+      tags && tags.length ? getTagIdsForNames(forum, tags) : getTagIdsForNames(forum, [ForumTag.IN_PROGRESS]);
 
     const thread = await forum.threads.create({
       name: title,

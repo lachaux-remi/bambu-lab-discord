@@ -1,6 +1,6 @@
 import { createServer } from "node:net";
 
-import { MessageCommand, PrintState } from "../enums";
+import { LightMode, LightNode, MessageCommand, PrintState } from "../enums";
 import { getLogger } from "../libs/logger";
 import type { PrintMessage } from "../types/printer-messages";
 
@@ -39,7 +39,7 @@ const scenario: PrintMessage[] = [
       total_layer_num: 100,
       mc_percent: 0,
       mc_remaining_time: 12,
-      lights_report: [{ node: "chamber_light", mode: "on" }]
+      lights_report: [{ node: LightNode.CHAMBER, mode: LightMode.ON }]
     }
   },
   {

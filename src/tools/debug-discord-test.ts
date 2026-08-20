@@ -1,5 +1,6 @@
 import { EmbedBuilder } from "discord.js";
 
+import { ForumTag } from "../enums";
 import { getLogger } from "../libs/logger";
 import {
   createPrintThread,
@@ -48,7 +49,7 @@ if (!TEST_FORUM_CHANNEL_ID) {
     testTitle,
     embed,
     undefined,
-    ["En cours", "Multicolore"],
+    [ForumTag.IN_PROGRESS, ForumTag.MULTICOLOR],
     TEST_FORUM_CHANNEL_ID
   );
 
@@ -72,7 +73,7 @@ if (!TEST_FORUM_CHANNEL_ID) {
     // Test tag update
     logger.info("Testing tag update: changing to Réussi, Monocolor...");
     await wait(2000);
-    const tagUpdateResult = await updateThreadTags(threadId, ["Réussi", "Monocolor"]);
+    const tagUpdateResult = await updateThreadTags(threadId, [ForumTag.SUCCEEDED, ForumTag.MONOCOLOR]);
     if (tagUpdateResult) {
       logger.info("Tags mis à jour avec succès.");
     } else {

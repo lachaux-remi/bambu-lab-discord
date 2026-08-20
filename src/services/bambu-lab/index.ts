@@ -2,7 +2,7 @@ import { MqttClient, connect } from "mqtt";
 import EventEmitter from "node:events";
 
 import { CHAMBER_LIGHT_WARMUP_MS, ERROR_LOG_COOLDOWN_MS, MQTT_PROTOCOL } from "../../constants";
-import { MessageCommand } from "../../enums";
+import { LightMode, LightNode, MessageCommand } from "../../enums";
 import { getBambuTlsOptions, isTlsCertificateError } from "../../libs/bambu-tls";
 import { getLogger } from "../../libs/logger";
 import { takeScreenshot } from "../../libs/rtc";
@@ -372,47 +372,31 @@ export default class BambuLabClient extends EventEmitter {
    * Turn off the chamber light
    */
   public turnOffChamberLight(): void {
-    if (!this.mqttClient?.connected) {
-      logger.warn({ printer: this.config.name }, "Cannot turn off chamber light: not connected");
-      return;
-    }
-
-    logger.info({ printer: this.config.name }, "Turning off chamber light");
-    this.mqttClient.publish(
-      this.topicRequest,
-      JSON.stringify({
-        system: {
-          sequence_id: "0",
-          command: "ledctrl",
-          led_node: "chamber_light",
-          led_mode: "off",
-          led_on_time: 500,
-          led_off_time: 500,
-          loop_times: 1,
-          interval_time: 1000
-        }
-      })
-    );
+    this.setChamberLight(LightMode.OFF);
   }
 
   /**
    * Turn on the chamber light
    */
   public turnOnChamberLight(): void {
+    this.setChamberLight(LightMode.ON);
+  }
+
+  private setChamberLight(mode: LightMode): void {
     if (!this.mqttClient?.connected) {
-      logger.warn({ printer: this.config.name }, "Cannot turn on chamber light: not connected");
+      logger.warn({ printer: this.config.name }, `Cannot turn ${mode} chamber light: not connected`);
       return;
     }
 
-    logger.info({ printer: this.config.name }, "Turning on chamber light");
+    logger.info({ printer: this.config.name }, `Turning ${mode} chamber light`);
     this.mqttClient.publish(
       this.topicRequest,
       JSON.stringify({
         system: {
           sequence_id: "0",
           command: "ledctrl",
-          led_node: "chamber_light",
-          led_mode: "on",
+          led_node: LightNode.CHAMBER,
+          led_mode: mode,
           led_on_time: 500,
           led_off_time: 500,
           loop_times: 1,
@@ -479,10 +463,10 @@ export default class BambuLabClient extends EventEmitter {
     // Track chamber light state from lights_report
     const printData = data.print as Record<string, unknown> | undefined;
     if (Array.isArray(printData?.lights_report)) {
-      const lightsReport = printData.lights_report as Array<{ node: string; mode: string }>;
-      const chamberLight = lightsReport.find(l => l.node === "chamber_light");
+      const lightsReport = printData.lights_report as Array<{ node: LightNode; mode: LightMode }>;
+      const chamberLight = lightsReport.find(light => light.node === LightNode.CHAMBER);
       if (chamberLight) {
-        this.chamberLightOn = chamberLight.mode === "on";
+        this.chamberLightOn = chamberLight.mode === LightMode.ON;
         logger.debug({ printer: this.config.name, chamberLightOn: this.chamberLightOn }, "Chamber light state updated");
       }
     }

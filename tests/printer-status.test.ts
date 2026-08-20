@@ -1,7 +1,7 @@
 import EventEmitter from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MessageCommand, PrintState } from "../src/enums";
+import { CommandResult, MessageCommand, PrintState } from "../src/enums";
 import type BambuLabClient from "../src/services/bambu-lab";
 import PrinterStatus from "../src/services/printer-status";
 import type { Status } from "../src/types/printer-status";
@@ -184,7 +184,7 @@ describe("PrinterStatus", () => {
     client.on("status", (newStatus: Status) => emittedStatuses.push({ ...newStatus }));
 
     await status.onUpdate({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.PAUSE });
-    await status.onUpdate({ command: MessageCommand.STOP, result: "success" });
+    await status.onUpdate({ command: MessageCommand.STOP, result: CommandResult.SUCCESS });
     expect(emittedStatuses).toHaveLength(1);
 
     await status.onUpdate({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.FAILED });
