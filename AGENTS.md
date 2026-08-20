@@ -270,7 +270,9 @@ installing them automatically.
   comments. Include checkboxes for a real-printer MQTT status cycle, Discord thread/embed/image/tag delivery, an RTC
   screenshot with chamber-light restoration, MQTT outages shorter and longer than 60 seconds, recovery tag restoration,
   and bot restart during an active print without a duplicate thread. Add release-specific manual checks when its changes
-  affect other external behavior. Unchecked items are review information, never authorization to merge.
+  affect other external behavior. Whenever another pull request is added to the pending release, review and update the
+  existing checklist comment for its new or changed manual test cases without resetting completed items. Unchecked items
+  are review information, never authorization to merge.
 
 ## Key Types
 
