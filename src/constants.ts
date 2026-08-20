@@ -18,6 +18,11 @@ const parseNumberSetting = (name: string, fallback: number, minimum: number, max
 
 export const APP_DEBUG = process.env.DEBUG === "true";
 
+export const MIN_NETWORK_PORT = 1;
+export const MAX_NETWORK_PORT = 65_535;
+export const DEFAULT_MQTT_PORT = 8883;
+export const DEFAULT_RTC_PORT = 6000;
+
 // Use plaintext MQTT only for a local development broker. Production defaults to MQTT over TLS.
 export const MQTT_PROTOCOL = process.env.MQTT_PROTOCOL === "mqtt" ? "mqtt" : "mqtts";
 

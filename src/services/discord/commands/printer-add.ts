@@ -1,5 +1,6 @@
 import { ChannelType, ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
+import { DEFAULT_MQTT_PORT, DEFAULT_RTC_PORT } from "../../../constants";
 import { getLogger } from "../../../libs/logger";
 import { addPrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
@@ -13,8 +14,8 @@ export const handlePrinterAdd = async (interaction: ChatInputCommandInteraction)
   const serial = interaction.options.getString("serial", true);
   const accessCode = interaction.options.getString("access_code", true);
   const channel = interaction.options.getChannel("channel", true);
-  const port = interaction.options.getInteger("port") ?? 8883;
-  const rtcPort = interaction.options.getInteger("rtc_port") ?? 6000;
+  const port = interaction.options.getInteger("port") ?? DEFAULT_MQTT_PORT;
+  const rtcPort = interaction.options.getInteger("rtc_port") ?? DEFAULT_RTC_PORT;
 
   // Vérifier que c'est un forum channel
   if (channel.type !== ChannelType.GuildForum) {

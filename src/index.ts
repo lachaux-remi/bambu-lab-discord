@@ -1,7 +1,7 @@
 import { Application } from "./application";
 import { getLogger } from "./libs/logger";
-import { ConfigLoadError, getConfig } from "./services/database";
-import { initDiscordClient, shutdownDiscordClient } from "./services/discord/bot";
+import { ConfigLoadError, getAllPrinters, getConfig } from "./services/database";
+import { initDiscordClient, reconcileConfiguredForumTags, shutdownDiscordClient } from "./services/discord/bot";
 import { registerCommands, setupCommandHandlers } from "./services/discord/commands";
 import { printerManager } from "./services/printer-manager";
 
@@ -12,6 +12,7 @@ const application = new Application({
     start: async () => {
       await initDiscordClient();
       try {
+        await reconcileConfiguredForumTags(getAllPrinters());
         await registerCommands();
         setupCommandHandlers();
       } catch (error) {
