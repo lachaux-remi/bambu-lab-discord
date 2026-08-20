@@ -56,40 +56,42 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   // Construire les mises à jour
   const updates: Partial<PrinterConfig> = {};
   const changes: string[] = [];
-  let connectionChanged = false;
+  let runtimeConfigChanged = false;
 
   if (newName && newName !== printer.name) {
     updates.name = newName;
     changes.push(`Nom: ${printer.name} → ${newName}`);
+    runtimeConfigChanged = true;
   }
   if (ip && ip !== printer.ip) {
     updates.ip = ip;
     changes.push(`IP: ${printer.ip} → ${ip}`);
-    connectionChanged = true;
+    runtimeConfigChanged = true;
   }
   if (serial && serial !== printer.serial) {
     updates.serial = serial;
     changes.push(`Serial: ${printer.serial} → ${serial}`);
-    connectionChanged = true;
+    runtimeConfigChanged = true;
   }
   if (accessCode && accessCode !== printer.accessCode) {
     updates.accessCode = accessCode;
     changes.push(`Code d'accès: ****`);
-    connectionChanged = true;
+    runtimeConfigChanged = true;
   }
   if (channel && channel.id !== printer.forumChannelId) {
     updates.forumChannelId = channel.id;
     changes.push(`Channel: <#${channel.id}>`);
+    runtimeConfigChanged = true;
   }
   if (port !== null && port !== printer.port) {
     updates.port = port;
     changes.push(`Port MQTT: ${printer.port} → ${port}`);
-    connectionChanged = true;
+    runtimeConfigChanged = true;
   }
   if (rtcPort !== null && rtcPort !== printer.rtcPort) {
     updates.rtcPort = rtcPort;
     changes.push(`Port RTC: ${printer.rtcPort} → ${rtcPort}`);
-    connectionChanged = true;
+    runtimeConfigChanged = true;
   }
   if (enabled !== null && enabled !== printer.enabled) {
     updates.enabled = enabled;
@@ -132,7 +134,7 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
       await printerManager.stopPrinter(printerId);
     } else if (!printer.enabled || !wasRunning) {
       lifecycleSucceeded = await printerManager.startPrinter(printerId);
-    } else if (connectionChanged) {
+    } else if (runtimeConfigChanged) {
       lifecycleSucceeded = await printerManager.restartPrinter(printerId);
     }
   } catch (error) {

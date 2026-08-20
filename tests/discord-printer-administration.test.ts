@@ -105,7 +105,7 @@ describe("printer administration commands", () => {
     );
   });
 
-  it("crée le nouveau tag lors d'un renommage sans supprimer ni redémarrer", async () => {
+  it("redémarre après un renommage pour actualiser la configuration runtime", async () => {
     const { handlePrinterEdit } = await import("../src/services/discord/commands/printer-edit");
     const request = interaction({ new_name: "Atelier X1C" });
 
@@ -115,7 +115,20 @@ describe("printer administration commands", () => {
     expect(mocks.ensurePrinterTag).toHaveBeenCalledWith("forum-1", "Atelier X1C");
     expect(mocks.startPrinter).not.toHaveBeenCalled();
     expect(mocks.stopPrinter).not.toHaveBeenCalled();
-    expect(mocks.restartPrinter).not.toHaveBeenCalled();
+    expect(mocks.restartPrinter).toHaveBeenCalledWith(printer.id);
+  });
+
+  it("redémarre après un déplacement de forum pour actualiser la configuration runtime", async () => {
+    const { handlePrinterEdit } = await import("../src/services/discord/commands/printer-edit");
+    const request = interaction({ channel: { id: "forum-2", type: ChannelType.GuildForum } });
+
+    await handlePrinterEdit(request as never);
+
+    expect(mocks.updatePrinter).toHaveBeenCalledWith(printer.id, { forumChannelId: "forum-2" });
+    expect(mocks.ensurePrinterTag).toHaveBeenCalledWith("forum-2", printer.name);
+    expect(mocks.startPrinter).not.toHaveBeenCalled();
+    expect(mocks.stopPrinter).not.toHaveBeenCalled();
+    expect(mocks.restartPrinter).toHaveBeenCalledWith(printer.id);
   });
 
   it("n'ajoute ni ne démarre une imprimante si son tag ne peut pas être préparé", async () => {
