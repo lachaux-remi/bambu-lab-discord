@@ -36,7 +36,11 @@ export default class BambuLabClient extends EventEmitter {
   private readonly topicRequest: string;
   private readonly brokerAddress: string;
 
-  private lastMqttErrorLoggedAt?: number;
+  private mqttFailureCount: number = 0;
+  private mqttOutageStartedAt?: number;
+  private mqttSuppressedFailureCount: number = 0;
+  private mqttSuppressedFailuresSinceSummary: number = 0;
+  private lastMqttErrorSummaryAt?: number;
   private chamberLightOn: boolean = false;
   private messageQueue: Promise<void> = Promise.resolve();
 
@@ -141,7 +145,6 @@ export default class BambuLabClient extends EventEmitter {
         if (connectionState === "failed") {
           return;
         }
-        logger.info({ printer: this.config.name }, "Connected to printer");
 
         mqttClient.subscribe(this.topicReport, error => {
           if (error) {
@@ -173,6 +176,8 @@ export default class BambuLabClient extends EventEmitter {
                 this.connectionAttempt = undefined;
                 resolve();
               }
+              this.logMqttRecovery();
+              logger.info({ printer: this.config.name }, "Connected to printer");
             }
           );
         });
@@ -193,8 +198,7 @@ export default class BambuLabClient extends EventEmitter {
           });
       });
       mqttClient.on("error", error => {
-        const now = Date.now();
-        if (!this.lastMqttErrorLoggedAt || now - this.lastMqttErrorLoggedAt >= ERROR_LOG_COOLDOWN_MS) {
+        if (isTlsCertificateError(error)) {
           logger.error(
             {
               printer: this.config.name,
@@ -202,11 +206,10 @@ export default class BambuLabClient extends EventEmitter {
               expectedIdentity: this.config.serial,
               message: error.message
             },
-            isTlsCertificateError(error)
-              ? "BambuLab MQTT certificate validation failed"
-              : "Error connecting to BambuLab MQTT server"
+            "BambuLab MQTT certificate validation failed"
           );
-          this.lastMqttErrorLoggedAt = now;
+        } else {
+          this.logMqttConnectionFailure(error);
         }
         if (connectionState === "pending") {
           const connectionError = isTlsCertificateError(error)
@@ -229,6 +232,62 @@ export default class BambuLabClient extends EventEmitter {
       cancel: error => cancelConnection(error)
     };
     return promise;
+  }
+
+  private logMqttConnectionFailure(error: Error): void {
+    const now = Date.now();
+    this.mqttOutageStartedAt ??= now;
+    this.lastMqttErrorSummaryAt ??= now;
+    this.mqttFailureCount += 1;
+
+    const context = {
+      printer: this.config.name,
+      ip: this.config.ip,
+      expectedIdentity: this.config.serial,
+      message: error.message
+    };
+    if (this.mqttFailureCount <= 3) {
+      logger.error({ ...context, failure: this.mqttFailureCount }, "Error connecting to BambuLab MQTT server");
+      return;
+    }
+
+    this.mqttSuppressedFailureCount += 1;
+    this.mqttSuppressedFailuresSinceSummary += 1;
+    if (now - this.lastMqttErrorSummaryAt < ERROR_LOG_COOLDOWN_MS) {
+      return;
+    }
+
+    logger.error(
+      {
+        ...context,
+        failures: this.mqttFailureCount,
+        suppressedFailures: this.mqttSuppressedFailuresSinceSummary
+      },
+      "MQTT connection failures continue"
+    );
+    this.mqttSuppressedFailuresSinceSummary = 0;
+    this.lastMqttErrorSummaryAt = now;
+  }
+
+  private logMqttRecovery(): void {
+    if (this.mqttOutageStartedAt === undefined) {
+      return;
+    }
+
+    logger.info(
+      {
+        printer: this.config.name,
+        outageDurationMs: Date.now() - this.mqttOutageStartedAt,
+        failures: this.mqttFailureCount,
+        suppressedFailures: this.mqttSuppressedFailureCount
+      },
+      "MQTT connection recovered"
+    );
+    this.mqttFailureCount = 0;
+    this.mqttOutageStartedAt = undefined;
+    this.mqttSuppressedFailureCount = 0;
+    this.mqttSuppressedFailuresSinceSummary = 0;
+    this.lastMqttErrorSummaryAt = undefined;
   }
 
   public disconnect(): Promise<void> {

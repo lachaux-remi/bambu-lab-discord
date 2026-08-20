@@ -74,7 +74,7 @@ NOTIFICATION_FOOTER_ICON=
 NOTIFICATION_COLOR=#24a543
 
 # Délais opérationnels (optionnel)
-ERROR_LOG_COOLDOWN_MINUTES=5
+ERROR_LOG_COOLDOWN_MINUTES=1
 # Délai de connexion MQTT en ms (1000 à 300000, défaut 30000 si invalide)
 MQTT_CONNECT_TIMEOUT_MS=30000
 CHAMBER_LIGHT_OFF_DELAY_MINUTES=5
@@ -86,6 +86,11 @@ BAMBU_TLS_INSECURE=false
 # Mode debug (optionnel)
 DEBUG=false
 ```
+
+Lorsqu'une imprimante déjà connectée devient indisponible, MQTT continue de tenter une reconnexion toutes les 5
+secondes. Les trois premiers échecs sont journalisés immédiatement, puis les erreurs sont regroupées au maximum une fois
+par `ERROR_LOG_COOLDOWN_MINUTES` (minimum et défaut : 1 minute). La reconnexion produit un résumé de la coupure et des
+échecs masqués.
 
 ## Configuration du Bot Discord
 

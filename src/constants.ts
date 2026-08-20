@@ -26,8 +26,8 @@ export const NOTIFICATION_FOOTER_TEXT = process.env.NOTIFICATION_FOOTER_TEXT || 
 export const NOTIFICATION_FOOTER_ICON = process.env.NOTIFICATION_FOOTER_ICON || "";
 export const NOTIFICATION_COLOR = (process.env.NOTIFICATION_COLOR || "#24a543") as `#${string}`;
 
-// MQTT error log cooldown in minutes (default: 5 minutes)
-export const ERROR_LOG_COOLDOWN_MS = parseNumberSetting("ERROR_LOG_COOLDOWN_MINUTES", 5, 0, 1440) * 60 * 1000;
+// Minimum interval between MQTT failure summaries (default: 1 minute)
+export const ERROR_LOG_COOLDOWN_MS = parseNumberSetting("ERROR_LOG_COOLDOWN_MINUTES", 1, 1, 1440) * 60 * 1000;
 
 // Delay before turning off the chamber light after a print ends (default: 5 minutes)
 export const CHAMBER_LIGHT_OFF_DELAY_MS = parseNumberSetting("CHAMBER_LIGHT_OFF_DELAY_MINUTES", 5, 0, 1440) * 60 * 1000;
