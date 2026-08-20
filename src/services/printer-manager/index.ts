@@ -140,8 +140,19 @@ class PrinterManager {
     const enabledPrinters = getEnabledPrinters();
     logger.info({ count: enabledPrinters.length }, "Starting all enabled printers");
 
+    let availablePrinters = 0;
     for (const config of enabledPrinters) {
-      await this.startPrinterInternal(config.id, true);
+      if (await this.startPrinterInternal(config.id, true)) {
+        availablePrinters += 1;
+      }
+    }
+
+    const unavailablePrinters = enabledPrinters.length - availablePrinters;
+    const context = { availablePrinters, unavailablePrinters };
+    if (unavailablePrinters > 0) {
+      logger.warn(context, "Printer startup complete; unavailable printers will retry in the background");
+    } else {
+      logger.info(context, "Printer startup complete");
     }
   }
 
@@ -239,15 +250,26 @@ class PrinterManager {
       logger.info({ printerId: config.id, name: instance.config.name }, "Printer started");
       return true;
     } catch (error) {
+      if (!startingPrinter.cancelled && !isTlsCertificateError(error)) {
+        this.printers.set(config.id, instance);
+        logger.warn(
+          { printerId: config.id, name: instance.config.name, error },
+          "Printer unavailable at startup; MQTT will retry in the background"
+        );
+        return false;
+      }
+
       await (startingPrinter.cancellation ?? instance.client.disconnect()).catch(disconnectError => {
         logger.error(
           { printerId: config.id, error: disconnectError },
           "Failed to clean up printer after start failure"
         );
       });
-      logger.error({ printerId: config.id, error }, "Failed to start printer");
-      if (failOnCertificateError && isTlsCertificateError(error)) {
-        throw error;
+      if (isTlsCertificateError(error)) {
+        logger.error({ printerId: config.id, error }, "Failed to start printer due to MQTT certificate validation");
+        if (failOnCertificateError) {
+          throw error;
+        }
       }
       return false;
     }

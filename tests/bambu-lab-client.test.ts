@@ -91,7 +91,7 @@ describe("BambuLabClient MQTT lifecycle", () => {
     );
   });
 
-  it("rejects a failed initial subscription and tears down the transport", async () => {
+  it("bounds startup on a failed initial subscription while retaining mqtt.js retry ownership", async () => {
     const error = new Error("subscribe failed");
     mqttClient.subscribe.mockImplementation((_topic, callback) => callback(error));
 
@@ -99,13 +99,12 @@ describe("BambuLabClient MQTT lifecycle", () => {
     mqttClient.emit("connect");
 
     await expect(connection).rejects.toBe(error);
-    expect(mqttClient.end).toHaveBeenCalledWith(true);
-    expect(mqttClient.reconnect).not.toHaveBeenCalled();
-    expect(client.isConnected()).toBe(false);
+    expect(mqttClient.end).not.toHaveBeenCalled();
+    expect(mqttClient.reconnect).toHaveBeenCalledOnce();
     expect(loggerMock.info).not.toHaveBeenCalledWith(expect.anything(), "MQTT connection recovered");
   });
 
-  it("rejects a failed initial publish and tears down the transport", async () => {
+  it("bounds startup on a failed initial publish while retaining mqtt.js retry ownership", async () => {
     const error = new Error("publish failed");
     mqttClient.publish.mockImplementation((_topic, _payload, callback) => callback?.(error));
 
@@ -113,12 +112,11 @@ describe("BambuLabClient MQTT lifecycle", () => {
     mqttClient.emit("connect");
 
     await expect(connection).rejects.toBe(error);
-    expect(mqttClient.end).toHaveBeenCalledWith(true);
-    expect(mqttClient.reconnect).not.toHaveBeenCalled();
-    expect(client.isConnected()).toBe(false);
+    expect(mqttClient.end).not.toHaveBeenCalled();
+    expect(mqttClient.reconnect).toHaveBeenCalledOnce();
   });
 
-  it("times out initial session setup with deterministic forced transport teardown", async () => {
+  it("keeps initial session setup bounded without disabling mqtt.js retries", async () => {
     vi.useFakeTimers();
     client = new BambuLabClient(config, 1_000);
     mqttClient.subscribe.mockImplementation(() => undefined);
@@ -137,8 +135,8 @@ describe("BambuLabClient MQTT lifecycle", () => {
         servername: "SERIAL-1"
       })
     );
-    expect(mqttClient.end).toHaveBeenCalledWith(true);
-    expect(client.isConnected()).toBe(false);
+    expect(mqttClient.end).not.toHaveBeenCalled();
+    expect(mqttClient.reconnect).toHaveBeenCalledOnce();
     await rejection;
   });
 
@@ -157,7 +155,73 @@ describe("BambuLabClient MQTT lifecycle", () => {
       code: "ERR_TLS_CERT_ALTNAME_INVALID",
       cause: tlsError
     });
-    expect(mqttClient.end).toHaveBeenCalledWith(true);
+    expect(mqttClient.endAsync).toHaveBeenCalledWith(true);
+    expect(client.isConnected()).toBe(false);
+  });
+
+  it("counts an initial network incident only once when shutdown re-emits the same error", async () => {
+    const networkError = Object.assign(new Error("connect EHOSTUNREACH 192.0.2.10:8883"), {
+      code: "EHOSTUNREACH"
+    });
+    mqttClient.endAsync.mockImplementation(async () => {
+      mqttClient.emit("error", networkError);
+    });
+
+    const connection = client.connect();
+    mqttClient.emit("error", networkError);
+
+    await expect(connection).rejects.toBe(networkError);
+    await client.disconnect();
+    expect(loggerMock.error).toHaveBeenCalledTimes(1);
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      expect.objectContaining({ failure: 1, message: networkError.message }),
+      "Error connecting to BambuLab MQTT server"
+    );
+  });
+
+  it("keeps mqtt.js retries alive after bounded cold-start failure and connects when the printer returns", async () => {
+    const networkError = Object.assign(new Error("connect EHOSTUNREACH 192.0.2.10:8883"), {
+      code: "EHOSTUNREACH"
+    });
+
+    const connection = client.connect();
+    mqttClient.emit("error", networkError);
+    await expect(connection).rejects.toBe(networkError);
+
+    expect(mqttClient.end).not.toHaveBeenCalled();
+    expect(mqttClient.endAsync).not.toHaveBeenCalled();
+    mqttClient.emit("reconnect");
+    mqttClient.connected = true;
+    mqttClient.emit("connect");
+
+    expect(connectMock).toHaveBeenCalledOnce();
+    expect(client.isConnected()).toBe(true);
+    expect(loggerMock.info).toHaveBeenCalledWith(
+      expect.objectContaining({ failures: 1, printer: "Test Printer" }),
+      "MQTT connection recovered"
+    );
+    expect(loggerMock.info).toHaveBeenCalledWith({ printer: "Test Printer" }, "Connected to printer");
+  });
+
+  it("stops mqtt.js retries cleanly without logging a false recovery", async () => {
+    const networkError = Object.assign(new Error("connect EHOSTUNREACH 192.0.2.10:8883"), {
+      code: "EHOSTUNREACH"
+    });
+
+    const connection = client.connect();
+    mqttClient.emit("error", networkError);
+    await expect(connection).rejects.toBe(networkError);
+    loggerMock.info.mockClear();
+
+    await client.disconnect();
+    mqttClient.emit("error", networkError);
+    mqttClient.emit("reconnect");
+    mqttClient.emit("connect");
+
+    expect(mqttClient.endAsync).toHaveBeenCalledOnce();
+    expect(loggerMock.error).toHaveBeenCalledTimes(1);
+    expect(loggerMock.info).not.toHaveBeenCalledWith(expect.anything(), "MQTT connection recovered");
+    expect(loggerMock.info).not.toHaveBeenCalledWith(expect.anything(), "Connected to printer");
     expect(client.isConnected()).toBe(false);
   });
 
@@ -171,6 +235,9 @@ describe("BambuLabClient MQTT lifecycle", () => {
 
     const connectionError = new Error("connect ECONNREFUSED 192.0.2.10:8883");
     for (let failure = 0; failure < 4; failure += 1) {
+      if (failure > 0) {
+        mqttClient.emit("reconnect");
+      }
       mqttClient.emit("error", connectionError);
       await vi.advanceTimersByTimeAsync(5_000);
     }
@@ -182,6 +249,7 @@ describe("BambuLabClient MQTT lifecycle", () => {
     expect(loggerMock.error).toHaveBeenCalledTimes(3);
 
     await vi.advanceTimersByTimeAsync(40_000);
+    mqttClient.emit("reconnect");
     mqttClient.emit("error", connectionError);
 
     expect(loggerMock.error).toHaveBeenCalledTimes(4);
@@ -194,9 +262,11 @@ describe("BambuLabClient MQTT lifecycle", () => {
       "MQTT connection failures continue"
     );
 
+    mqttClient.emit("reconnect");
     mqttClient.emit("error", connectionError);
     expect(loggerMock.error).toHaveBeenCalledTimes(4);
     await vi.advanceTimersByTimeAsync(60_000);
+    mqttClient.emit("reconnect");
     mqttClient.emit("error", connectionError);
     expect(loggerMock.error).toHaveBeenCalledTimes(5);
     expect(loggerMock.error).toHaveBeenLastCalledWith(
@@ -215,6 +285,9 @@ describe("BambuLabClient MQTT lifecycle", () => {
 
     const connectionError = new Error("connection refused");
     for (let failure = 0; failure < 5; failure += 1) {
+      if (failure > 0) {
+        mqttClient.emit("reconnect");
+      }
       mqttClient.emit("error", connectionError);
       await vi.advanceTimersByTimeAsync(5_000);
     }
@@ -241,6 +314,9 @@ describe("BambuLabClient MQTT lifecycle", () => {
 
     const connectionError = new Error("connection refused");
     for (let failure = 0; failure < 4; failure += 1) {
+      if (failure > 0) {
+        mqttClient.emit("reconnect");
+      }
       mqttClient.emit("error", connectionError);
     }
     const tlsError = Object.assign(new Error("certificate expired"), { code: "CERT_HAS_EXPIRED" });
@@ -287,7 +363,7 @@ describe("BambuLabClient MQTT lifecycle", () => {
     await client.disconnect();
 
     await rejection;
-    expect(mqttClient.end).toHaveBeenCalledWith(true);
+    expect(mqttClient.endAsync).toHaveBeenCalledWith(true);
     expect(client.isConnected()).toBe(false);
   });
 

@@ -31,7 +31,7 @@ const main = async (): Promise<void> => {
   logger.info("🚀 Starting Bambu Lab Discord Bot...");
   getConfig();
   await application.start();
-  logger.info("✅ Bot started successfully");
+  logger.info("✅ Bot operational; Discord is ready and unavailable printers will reconnect automatically");
 };
 
 const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
