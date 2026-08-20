@@ -85,7 +85,14 @@ BAMBU_TLS_INSECURE=false
 
 # Mode debug (optionnel)
 DEBUG=false
+
+# Format des logs : auto (lisible sur terminal local, JSON sinon), pretty ou json
+LOG_FORMAT=auto
 ```
+
+Par défaut, les logs utilisent une présentation lisible dans un terminal local et restent en JSON structuré en
+production ou lorsque la sortie n'est pas un TTY (notamment sous Docker). `LOG_FORMAT=pretty` ou `LOG_FORMAT=json`
+permet de forcer explicitement le format.
 
 Lorsqu'une imprimante déjà connectée devient indisponible, MQTT continue de tenter une reconnexion toutes les 5
 secondes. Les trois premiers échecs sont journalisés immédiatement, puis les erreurs sont regroupées au maximum une fois
