@@ -101,17 +101,17 @@ export default class PrinterStatus {
 
       if (data.gcode_state) {
         newStatus.state = data.gcode_state;
-        if (
+        const startsNewPrint =
           [PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(this.latestStatus.state) &&
-          [PrintState.PREPARE, PrintState.RUNNING, PrintState.PAUSE].includes(data.gcode_state)
-        ) {
+          [PrintState.PREPARE, PrintState.RUNNING, PrintState.PAUSE].includes(data.gcode_state);
+        if (startsNewPrint) {
           newStatus.cancellationRequested = false;
         }
         if (
-          this.latestStatus.startedAt === undefined &&
-          [PrintState.RUNNING, PrintState.PAUSE].includes(data.gcode_state)
+          [PrintState.RUNNING, PrintState.PAUSE].includes(data.gcode_state) &&
+          (this.latestStatus.startedAt === undefined || startsNewPrint)
         ) {
-          newStatus.startedAt = Date.now();
+          newStatus.startedAt = Math.max(Date.now(), (this.latestStatus.startedAt ?? -1) + 1);
         }
       }
       // Mettre à jour les informations de progression si elles sont présentes
@@ -136,6 +136,9 @@ export default class PrinterStatus {
         return;
       }
       newStatus.cancellationRequested = true;
+      this.latestStatus.cancellationRequested = true;
+      await this.client.emitCancellationRequested();
+      return;
     } else {
       logger.warn({ command: data.command, keys: Object.keys(data) }, "Unknown message command type");
       return;

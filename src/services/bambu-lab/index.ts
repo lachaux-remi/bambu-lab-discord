@@ -50,6 +50,7 @@ export default class BambuLabClient extends EventEmitter {
   private lastMqttErrorSummaryAt?: number;
   private mqttAttemptHasFailure: boolean = false;
   private stopping: boolean = false;
+  private sessionReady: boolean = false;
   private chamberLightOn: boolean = false;
   private messageQueue: Promise<void> = Promise.resolve();
   private screenshotQueue: Promise<void> = Promise.resolve();
@@ -97,6 +98,12 @@ export default class BambuLabClient extends EventEmitter {
   public async emitStatus(...arguments_: ClientEvents["status"]): Promise<void> {
     for (const listener of this.listeners("status")) {
       await (listener as (...listenerArguments: ClientEvents["status"]) => void | Promise<void>)(...arguments_);
+    }
+  }
+
+  public async emitCancellationRequested(): Promise<void> {
+    for (const listener of this.listeners("cancellationRequested")) {
+      await (listener as () => void | Promise<void>)();
     }
   }
 
@@ -204,6 +211,8 @@ export default class BambuLabClient extends EventEmitter {
               connectionState = MqttConnectionState.CONNECTED;
               this.logMqttRecovery();
               this.mqttAttemptHasFailure = false;
+              this.sessionReady = true;
+              this.emit("ready");
               logger.info({ printer: this.config.name }, "Connected to printer");
             }
           );
@@ -217,6 +226,14 @@ export default class BambuLabClient extends EventEmitter {
       mqttClient.on("disconnect", packet => {
         logger.debug({ printer: this.config.name, reasonCode: packet.reasonCode }, "Disconnected from printer");
       });
+      const emitCommunicationLost = () => {
+        if (!this.stopping && this.mqttClient === mqttClient && this.sessionReady) {
+          this.sessionReady = false;
+          this.emit("lost");
+        }
+      };
+      mqttClient.on("offline", emitCommunicationLost);
+      mqttClient.on("close", emitCommunicationLost);
       mqttClient.on("message", (receivedTopic: string, payload: Buffer) => {
         if (receivedTopic !== this.topicReport) {
           return;
@@ -337,6 +354,7 @@ export default class BambuLabClient extends EventEmitter {
     }
 
     this.stopping = true;
+    this.sessionReady = false;
     const connectionAttempt = this.connectionAttempt;
     if (connectionAttempt) {
       return connectionAttempt.cancel(new Error("MQTT initial connection cancelled"));
