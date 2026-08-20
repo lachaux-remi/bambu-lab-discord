@@ -36,6 +36,8 @@ describe("printer slash command permissions", () => {
     memberPermissions: permissions,
     options: { getSubcommand: vi.fn(() => subcommand) },
     reply: vi.fn(),
+    editReply: vi.fn(),
+    followUp: vi.fn(),
     replied: false,
     deferred: false
   });
@@ -83,5 +85,36 @@ describe("printer slash command permissions", () => {
     await handler(request);
 
     expect(seams.status).toHaveBeenCalledWith(request);
+  });
+
+  it("edits a deferred reply when the command fails after deferReply", async () => {
+    const { PermissionFlagsBits } = await import("discord.js");
+    const handler = await installHandler();
+    const request = interaction(new PermissionsBitField(PermissionFlagsBits.ManageGuild));
+    request.deferred = true;
+    seams.list.mockRejectedValueOnce(new Error("failure after defer"));
+
+    await handler(request);
+
+    expect(request.editReply).toHaveBeenCalledWith("Une erreur est survenue");
+    expect(request.reply).not.toHaveBeenCalled();
+    expect(request.followUp).not.toHaveBeenCalled();
+  });
+
+  it("sends one follow-up when a command fails after an initial reply", async () => {
+    const { PermissionFlagsBits } = await import("discord.js");
+    const handler = await installHandler();
+    const request = interaction(new PermissionsBitField(PermissionFlagsBits.ManageGuild));
+    request.replied = true;
+    seams.list.mockRejectedValueOnce(new Error("failure after reply"));
+
+    await handler(request);
+
+    expect(request.followUp).toHaveBeenCalledWith({
+      content: "Une erreur est survenue",
+      flags: MessageFlags.Ephemeral
+    });
+    expect(request.reply).not.toHaveBeenCalled();
+    expect(request.editReply).not.toHaveBeenCalled();
   });
 });

@@ -1,10 +1,11 @@
-import { MessageFlags } from "discord.js";
+import { ChannelType, MessageFlags } from "discord.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PrintState } from "../src/enums";
 import type { PrinterConfig } from "../src/types/printer-config";
 
 const mocks = vi.hoisted(() => ({
+  addPrinter: vi.fn(),
   ensurePrinterTag: vi.fn(),
   getPrinter: vi.fn(),
   updatePrinter: vi.fn(),
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/services/database", () => ({
+  addPrinter: mocks.addPrinter,
   getPrinter: mocks.getPrinter,
   updatePrinter: mocks.updatePrinter
 }));
@@ -63,7 +65,8 @@ describe("printer administration commands", () => {
       ...printer,
       ...updates
     }));
-    mocks.ensurePrinterTag.mockResolvedValue(true);
+    mocks.addPrinter.mockReturnValue(printer);
+    mocks.ensurePrinterTag.mockResolvedValue({ status: "ready", created: [] });
     mocks.startPrinter.mockResolvedValue(true);
     mocks.stopPrinter.mockResolvedValue(true);
     mocks.restartPrinter.mockResolvedValue(true);
@@ -102,7 +105,7 @@ describe("printer administration commands", () => {
     );
   });
 
-  it("crée le nouveau tag lors d'un renommage sans supprimer ni redémarrer", async () => {
+  it("redémarre après un renommage pour actualiser la configuration runtime", async () => {
     const { handlePrinterEdit } = await import("../src/services/discord/commands/printer-edit");
     const request = interaction({ new_name: "Atelier X1C" });
 
@@ -112,7 +115,61 @@ describe("printer administration commands", () => {
     expect(mocks.ensurePrinterTag).toHaveBeenCalledWith("forum-1", "Atelier X1C");
     expect(mocks.startPrinter).not.toHaveBeenCalled();
     expect(mocks.stopPrinter).not.toHaveBeenCalled();
+    expect(mocks.restartPrinter).toHaveBeenCalledWith(printer.id);
+  });
+
+  it("redémarre après un déplacement de forum pour actualiser la configuration runtime", async () => {
+    const { handlePrinterEdit } = await import("../src/services/discord/commands/printer-edit");
+    const request = interaction({ channel: { id: "forum-2", type: ChannelType.GuildForum } });
+
+    await handlePrinterEdit(request as never);
+
+    expect(mocks.updatePrinter).toHaveBeenCalledWith(printer.id, { forumChannelId: "forum-2" });
+    expect(mocks.ensurePrinterTag).toHaveBeenCalledWith("forum-2", printer.name);
+    expect(mocks.startPrinter).not.toHaveBeenCalled();
+    expect(mocks.stopPrinter).not.toHaveBeenCalled();
+    expect(mocks.restartPrinter).toHaveBeenCalledWith(printer.id);
+  });
+
+  it("n'ajoute ni ne démarre une imprimante si son tag ne peut pas être préparé", async () => {
+    mocks.ensurePrinterTag.mockResolvedValue({ status: "failed" });
+    const { handlePrinterAdd } = await import("../src/services/discord/commands/printer-add");
+    const request = interaction({
+      name: "Atelier X1C",
+      ip: "192.0.2.2",
+      serial: "SERIAL-2",
+      access_code: "secret-2",
+      channel: { id: "forum-2", type: ChannelType.GuildForum }
+    });
+
+    await handlePrinterAdd(request as never);
+
+    expect(mocks.ensurePrinterTag).toHaveBeenCalledWith("forum-2", "Atelier X1C");
+    expect(mocks.addPrinter).not.toHaveBeenCalled();
+    expect(mocks.startPrinter).not.toHaveBeenCalled();
+    expect(request.editReply).toHaveBeenCalledWith(
+      "❌ Impossible de préparer les tags du forum. Aucune imprimante n'a été ajoutée."
+    );
+  });
+
+  it("conserve la configuration et le runtime lors d'un échec de tags avant renommage et déplacement", async () => {
+    mocks.ensurePrinterTag.mockResolvedValue({ status: "capacity", maximum: 20, required: 21 });
+    const { handlePrinterEdit } = await import("../src/services/discord/commands/printer-edit");
+    const request = interaction({
+      new_name: "Atelier X1C",
+      channel: { id: "forum-2", type: ChannelType.GuildForum }
+    });
+
+    await handlePrinterEdit(request as never);
+
+    expect(mocks.ensurePrinterTag).toHaveBeenCalledWith("forum-2", "Atelier X1C");
+    expect(mocks.updatePrinter).not.toHaveBeenCalled();
+    expect(mocks.startPrinter).not.toHaveBeenCalled();
+    expect(mocks.stopPrinter).not.toHaveBeenCalled();
     expect(mocks.restartPrinter).not.toHaveBeenCalled();
+    expect(request.editReply).toHaveBeenCalledWith(
+      "❌ Le forum a atteint sa limite de 20 tags. Supprimez un tag avant de modifier l'imprimante."
+    );
   });
 
   it("arrête immédiatement une imprimante désactivée", async () => {

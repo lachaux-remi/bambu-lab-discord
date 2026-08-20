@@ -56,40 +56,42 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   // Construire les mises à jour
   const updates: Partial<PrinterConfig> = {};
   const changes: string[] = [];
-  let connectionChanged = false;
+  let runtimeConfigChanged = false;
 
   if (newName && newName !== printer.name) {
     updates.name = newName;
     changes.push(`Nom: ${printer.name} → ${newName}`);
+    runtimeConfigChanged = true;
   }
   if (ip && ip !== printer.ip) {
     updates.ip = ip;
     changes.push(`IP: ${printer.ip} → ${ip}`);
-    connectionChanged = true;
+    runtimeConfigChanged = true;
   }
   if (serial && serial !== printer.serial) {
     updates.serial = serial;
     changes.push(`Serial: ${printer.serial} → ${serial}`);
-    connectionChanged = true;
+    runtimeConfigChanged = true;
   }
   if (accessCode && accessCode !== printer.accessCode) {
     updates.accessCode = accessCode;
     changes.push(`Code d'accès: ****`);
-    connectionChanged = true;
+    runtimeConfigChanged = true;
   }
   if (channel && channel.id !== printer.forumChannelId) {
     updates.forumChannelId = channel.id;
     changes.push(`Channel: <#${channel.id}>`);
+    runtimeConfigChanged = true;
   }
   if (port !== null && port !== printer.port) {
     updates.port = port;
     changes.push(`Port MQTT: ${printer.port} → ${port}`);
-    connectionChanged = true;
+    runtimeConfigChanged = true;
   }
   if (rtcPort !== null && rtcPort !== printer.rtcPort) {
     updates.rtcPort = rtcPort;
     changes.push(`Port RTC: ${printer.rtcPort} → ${rtcPort}`);
-    connectionChanged = true;
+    runtimeConfigChanged = true;
   }
   if (enabled !== null && enabled !== printer.enabled) {
     updates.enabled = enabled;
@@ -99,6 +101,21 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   if (changes.length === 0) {
     await interaction.editReply("⚠️ Aucune modification spécifiée");
     return;
+  }
+
+  if (updates.name || updates.forumChannelId) {
+    const tagPreparation = await ensurePrinterTag(
+      updates.forumChannelId ?? printer.forumChannelId,
+      updates.name ?? printer.name
+    );
+    if (tagPreparation.status !== "ready") {
+      await interaction.editReply(
+        tagPreparation.status === "capacity"
+          ? `❌ Le forum a atteint sa limite de ${tagPreparation.maximum} tags. Supprimez un tag avant de modifier l'imprimante.`
+          : "❌ Impossible de préparer les tags du forum. La configuration de l'imprimante reste inchangée."
+      );
+      return;
+    }
   }
 
   // Appliquer les mises à jour
@@ -111,18 +128,13 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
 
   logger.info({ printerId, changes }, "Printer updated via command");
 
-  // Un renommage doit toujours rendre le nouveau tag disponible. L'ancien tag est conservé car il peut être utilisé.
-  if (updates.name || updates.forumChannelId) {
-    await ensurePrinterTag(updated.forumChannelId, updated.name);
-  }
-
   let lifecycleSucceeded = true;
   try {
     if (!updated.enabled) {
       await printerManager.stopPrinter(printerId);
     } else if (!printer.enabled || !wasRunning) {
       lifecycleSucceeded = await printerManager.startPrinter(printerId);
-    } else if (connectionChanged) {
+    } else if (runtimeConfigChanged) {
       lifecycleSucceeded = await printerManager.restartPrinter(printerId);
     }
   } catch (error) {

@@ -83,7 +83,7 @@ describe.sequential("Discord forum mutation serialization", () => {
     edits.shift()?.();
     await expect(Promise.all([baseTags, printerTag])).resolves.toEqual([
       { created: ["En cours", "Réussi", "Échoué", "En pause", "Attention", "Multicolore", "Monocolor"], removed: [] },
-      true
+      { status: "ready", created: ["Workshop P1S"] }
     ]);
   });
 
@@ -92,7 +92,7 @@ describe.sequential("Discord forum mutation serialization", () => {
       type: 15,
       availableTags: [
         { id: "foreign", name: "Équipe nuit", moderated: false },
-        { id: "base", name: "En cours", moderated: true, emoji: { id: null, name: "⏳" } }
+        { id: "base", name: "En cours", moderated: false, emoji: { id: null, name: "❌" } }
       ] as Array<{ id: string; name: string; moderated: boolean; emoji?: { id: null; name: string } }>,
       edit: vi.fn((payload: { availableTags: typeof forum.availableTags }) => {
         forum.availableTags = payload.availableTags.map((tag, index) => ({
@@ -138,5 +138,34 @@ describe.sequential("Discord forum mutation serialization", () => {
       "Bureau X1C"
     ]);
     expect(forum.availableTags[0]).toMatchObject({ id: "foreign", name: "Équipe nuit", moderated: false });
+    expect(forum.availableTags[1]).toMatchObject({
+      id: "base",
+      name: "En cours",
+      moderated: true,
+      emoji: { id: null, name: "⏳" }
+    });
+  });
+
+  it("refuses preparation before mutation when the forum tag capacity is exceeded", async () => {
+    const forum = {
+      type: 15,
+      availableTags: Array.from({ length: 20 }, (_, index) => ({
+        id: `foreign-${index}`,
+        name: `Tag étranger ${index}`,
+        moderated: false
+      })),
+      edit: vi.fn()
+    };
+    discord.fetch.mockResolvedValue(forum);
+
+    const { ensurePrinterTag, initDiscordClient } = await import("../src/services/discord/bot");
+    await initDiscordClient();
+
+    await expect(ensurePrinterTag("forum-1", "Atelier P1S")).resolves.toEqual({
+      status: "capacity",
+      maximum: 20,
+      required: 28
+    });
+    expect(forum.edit).not.toHaveBeenCalled();
   });
 });
