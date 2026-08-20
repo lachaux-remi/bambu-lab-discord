@@ -138,15 +138,17 @@ describe("PrinterStatus", () => {
 
     await status.onUpdate({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.PAUSE });
     await status.onUpdate({ command: MessageCommand.STOP, result: "success" });
+    expect(emittedStatuses).toHaveLength(1);
+
     await status.onUpdate({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.FAILED });
     await status.onUpdate({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.RUNNING });
 
-    expect(emittedStatuses).toHaveLength(4);
-    expect(emittedStatuses[2]).toMatchObject({
+    expect(emittedStatuses).toHaveLength(3);
+    expect(emittedStatuses[1]).toMatchObject({
       state: PrintState.FAILED,
       cancellationRequested: true
     });
-    expect(emittedStatuses[3]).toMatchObject({
+    expect(emittedStatuses[2]).toMatchObject({
       state: PrintState.RUNNING,
       cancellationRequested: false
     });

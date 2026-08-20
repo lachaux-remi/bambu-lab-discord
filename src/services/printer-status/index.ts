@@ -154,8 +154,7 @@ export default class PrinterStatus {
       newStatus.subtaskId !== undefined ||
       newStatus.taskId !== undefined ||
       newStatus.gcodeFile !== undefined ||
-      newStatus.plate !== undefined ||
-      newStatus.cancellationRequested !== undefined;
+      newStatus.plate !== undefined;
 
     if (hasImportantChanges) {
       logger.debug(

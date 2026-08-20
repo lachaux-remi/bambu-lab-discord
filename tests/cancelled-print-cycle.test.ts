@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
   connect: vi.fn(),
   getPrinter: vi.fn(),
   printCancelled: vi.fn(),
-  printFailed: vi.fn()
+  printFailed: vi.fn(),
+  printProgress: vi.fn()
 }));
 
 class FakeMqttClient extends EventEmitter {
@@ -48,7 +49,7 @@ vi.mock("../src/services/discord/embeds", () => {
     printFailed: mocks.printFailed.mockResolvedValue(result),
     printFinished: vi.fn().mockResolvedValue(result),
     printPaused: vi.fn().mockResolvedValue(result),
-    printProgress: vi.fn().mockResolvedValue(result),
+    printProgress: mocks.printProgress.mockResolvedValue(result),
     printResumed: vi.fn().mockResolvedValue(result),
     printStopped: vi.fn().mockResolvedValue(result)
   };
@@ -110,6 +111,17 @@ describe("cancelled print MQTT cycle", () => {
 
     await vi.waitFor(() => expect(mocks.printCancelled).toHaveBeenCalledOnce());
     expect(mocks.printFailed).not.toHaveBeenCalled();
+  });
+
+  it("does not emit an artificial progress notification for a successful stop while running", async () => {
+    await startPrinter();
+    report({ command: MessageCommand.PROJECT_FILE, subtask_name: "Fixture print", plate_idx: 1 });
+    report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.RUNNING, mc_percent: 78 });
+    report({ command: MessageCommand.STOP, reason: "success", result: "success" });
+    report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.FAILED, mc_percent: 0 });
+
+    await vi.waitFor(() => expect(mocks.printCancelled).toHaveBeenCalledOnce());
+    expect(mocks.printProgress).not.toHaveBeenCalled();
   });
 
   it("keeps a failed stop as a genuine print failure", async () => {
