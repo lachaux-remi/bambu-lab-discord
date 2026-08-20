@@ -117,22 +117,8 @@ interface PrinterInstance {
   config: PrinterConfig;
   lastProgressPercent: number;
   printThreads: Map<string, string>;
-  latestStatus?: Status;
   recoveredThread?: ActivePrintThread;
   chamberLightTimer?: NodeJS.Timeout;
-}
-
-export interface PrinterStatusView {
-  readonly running: boolean;
-  readonly connected: boolean;
-  readonly print?: {
-    readonly state?: PrintState;
-    readonly project?: string;
-    readonly progressPercent?: number;
-    readonly currentLayer?: number;
-    readonly maxLayers?: number;
-    readonly remainingTime?: number;
-  };
 }
 
 interface StartingPrinter {
@@ -390,23 +376,11 @@ class PrinterManager {
   /**
    * Obtient le statut d'une imprimante
    */
-  public getPrinterStatus(printerId: string): PrinterStatusView {
+  public getPrinterStatus(printerId: string): { running: boolean; connected: boolean } {
     const instance = this.printers.get(printerId);
     return {
       running: !!instance,
-      connected: instance?.client.isConnected() ?? false,
-      ...(instance?.latestStatus
-        ? {
-            print: {
-              state: instance.latestStatus.state,
-              project: instance.latestStatus.project,
-              progressPercent: instance.latestStatus.progressPercent,
-              currentLayer: instance.latestStatus.currentLayer,
-              maxLayers: instance.latestStatus.maxLayers,
-              remainingTime: instance.latestStatus.remainingTime
-            }
-          }
-        : {})
+      connected: instance?.client.isConnected() ?? false
     };
   }
 
@@ -433,7 +407,6 @@ class PrinterManager {
     const { client } = instance;
 
     client.on("status", async (newStatus: Status, oldStatus: Status) => {
-      instance.latestStatus = { ...newStatus };
       await this.handleStatusChange(instance, newStatus, oldStatus);
     });
   }

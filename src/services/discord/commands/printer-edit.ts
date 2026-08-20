@@ -1,8 +1,6 @@
 import { ChannelType, ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
-import { MAX_NETWORK_PORT, MIN_NETWORK_PORT } from "../../../constants";
 import { getLogger } from "../../../libs/logger";
-import type { PrinterConfig } from "../../../types/printer-config";
 import { getPrinter, updatePrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
 import { ensurePrinterTag } from "../bot";
@@ -27,9 +25,7 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   const serial = interaction.options.getString("serial");
   const accessCode = interaction.options.getString("access_code");
   const channel = interaction.options.getChannel("channel");
-  const port = interaction.options.getInteger("port");
   const rtcPort = interaction.options.getInteger("rtc_port");
-  const enabled = interaction.options.getBoolean("enabled");
 
   // Vérifier si le channel est un forum
   if (channel && channel.type !== ChannelType.GuildForum) {
@@ -40,60 +36,35 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
     return;
   }
 
-  const invalidPort = [port, rtcPort].find(
-    value => value !== null && (value < MIN_NETWORK_PORT || value > MAX_NETWORK_PORT)
-  );
-  if (invalidPort !== undefined) {
-    await interaction.reply({
-      content: `❌ Les ports doivent être compris entre ${MIN_NETWORK_PORT} et ${MAX_NETWORK_PORT}`,
-      flags: MessageFlags.Ephemeral
-    });
-    return;
-  }
-
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   // Construire les mises à jour
-  const updates: Partial<PrinterConfig> = {};
+  const updates: Record<string, unknown> = {};
   const changes: string[] = [];
-  let connectionChanged = false;
 
-  if (newName && newName !== printer.name) {
+  if (newName) {
     updates.name = newName;
     changes.push(`Nom: ${printer.name} → ${newName}`);
   }
-  if (ip && ip !== printer.ip) {
+  if (ip) {
     updates.ip = ip;
     changes.push(`IP: ${printer.ip} → ${ip}`);
-    connectionChanged = true;
   }
-  if (serial && serial !== printer.serial) {
+  if (serial) {
     updates.serial = serial;
     changes.push(`Serial: ${printer.serial} → ${serial}`);
-    connectionChanged = true;
   }
-  if (accessCode && accessCode !== printer.accessCode) {
+  if (accessCode) {
     updates.accessCode = accessCode;
     changes.push(`Code d'accès: ****`);
-    connectionChanged = true;
   }
-  if (channel && channel.id !== printer.forumChannelId) {
+  if (channel) {
     updates.forumChannelId = channel.id;
     changes.push(`Channel: <#${channel.id}>`);
   }
-  if (port !== null && port !== printer.port) {
-    updates.port = port;
-    changes.push(`Port MQTT: ${printer.port} → ${port}`);
-    connectionChanged = true;
-  }
-  if (rtcPort !== null && rtcPort !== printer.rtcPort) {
+  if (rtcPort) {
     updates.rtcPort = rtcPort;
     changes.push(`Port RTC: ${printer.rtcPort} → ${rtcPort}`);
-    connectionChanged = true;
-  }
-  if (enabled !== null && enabled !== printer.enabled) {
-    updates.enabled = enabled;
-    changes.push(enabled ? "Imprimante activée" : "Imprimante désactivée");
   }
 
   if (changes.length === 0) {
@@ -111,33 +82,19 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
 
   logger.info({ printerId, changes }, "Printer updated via command");
 
-  // Un renommage doit toujours rendre le nouveau tag disponible. L'ancien tag est conservé car il peut être utilisé.
-  if (updates.name || updates.forumChannelId) {
-    await ensurePrinterTag(updated.forumChannelId, updated.name);
+  // Si le channel a changé, créer le tag dans le nouveau forum
+  if (channel) {
+    await ensurePrinterTag(channel.id, newName ?? printer.name);
   }
 
-  let lifecycleSucceeded = true;
-  try {
-    if (!updated.enabled) {
-      await printerManager.stopPrinter(printerId);
-    } else if (!printer.enabled || !wasRunning) {
-      lifecycleSucceeded = await printerManager.startPrinter(printerId);
-    } else if (connectionChanged) {
-      lifecycleSucceeded = await printerManager.restartPrinter(printerId);
-    }
-  } catch (error) {
-    lifecycleSucceeded = false;
-    logger.error({ error, printerId }, "Failed to apply printer lifecycle change");
-  }
-
-  if (!lifecycleSucceeded) {
+  if (wasRunning && !(await printerManager.restartPrinter(printerId))) {
     await interaction.editReply(
-      `⚠️ Imprimante **${updated.name}** mise à jour, mais l'application immédiate de son état a échoué. Vérifiez sa configuration et sa disponibilité.`
+      `⚠️ Imprimante **${newName ?? printer.name}** mise à jour, mais sa reconnexion a échoué. Vérifiez sa configuration et sa disponibilité.`
     );
     return;
   }
 
   await interaction.editReply(
-    `✅ Imprimante **${updated.name}** mise à jour\n\n` + changes.map(c => `• ${c}`).join("\n")
+    `✅ Imprimante **${newName ?? printer.name}** mise à jour\n\n` + changes.map(c => `• ${c}`).join("\n")
   );
 };

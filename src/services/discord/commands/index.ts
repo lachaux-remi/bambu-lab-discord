@@ -1,12 +1,6 @@
 import { MessageFlags, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 
-import {
-  DEFAULT_MQTT_PORT,
-  DEFAULT_RTC_PORT,
-  DISCORD_BOT_TOKEN,
-  MAX_NETWORK_PORT,
-  MIN_NETWORK_PORT
-} from "../../../constants";
+import { DISCORD_BOT_TOKEN } from "../../../constants";
 import { getLogger } from "../../../libs/logger";
 import { getDiscordClient } from "../bot";
 import { handlePrinterAdd } from "./printer-add";
@@ -14,7 +8,6 @@ import { handlePrinterEdit } from "./printer-edit";
 import { handlePrinterList } from "./printer-list";
 import { handlePrinterRemove } from "./printer-remove";
 import { handlePrinterScreenshot } from "./printer-screenshot";
-import { handlePrinterStatus } from "./printer-status";
 
 const logger = getLogger("DiscordCommands");
 
@@ -34,21 +27,9 @@ const commands = [
         .addChannelOption(opt =>
           opt.setName("channel").setDescription("Forum channel pour les notifications").setRequired(true)
         )
+        .addIntegerOption(opt => opt.setName("port").setDescription("Port MQTT (défaut: 8883)").setRequired(false))
         .addIntegerOption(opt =>
-          opt
-            .setName("port")
-            .setDescription(`Port MQTT (défaut: ${DEFAULT_MQTT_PORT})`)
-            .setMinValue(MIN_NETWORK_PORT)
-            .setMaxValue(MAX_NETWORK_PORT)
-            .setRequired(false)
-        )
-        .addIntegerOption(opt =>
-          opt
-            .setName("rtc_port")
-            .setDescription(`Port RTC pour les captures d'écran (défaut: ${DEFAULT_RTC_PORT})`)
-            .setMinValue(MIN_NETWORK_PORT)
-            .setMaxValue(MAX_NETWORK_PORT)
-            .setRequired(false)
+          opt.setName("rtc_port").setDescription("Port RTC pour les captures d'écran (défaut: 6000)").setRequired(false)
         )
     )
     .addSubcommand(sub =>
@@ -60,14 +41,6 @@ const commands = [
         )
     )
     .addSubcommand(sub => sub.setName("list").setDescription("Lister toutes les imprimantes"))
-    .addSubcommand(sub =>
-      sub
-        .setName("status")
-        .setDescription("Afficher l'état détaillé d'une imprimante")
-        .addStringOption(opt =>
-          opt.setName("name").setDescription("Nom de l'imprimante").setRequired(true).setAutocomplete(true)
-        )
-    )
     .addSubcommand(sub =>
       sub
         .setName("screenshot")
@@ -89,23 +62,7 @@ const commands = [
         .addStringOption(opt => opt.setName("access_code").setDescription("Nouveau code d'accès").setRequired(false))
         .addChannelOption(opt => opt.setName("channel").setDescription("Nouveau forum channel").setRequired(false))
         .addIntegerOption(opt =>
-          opt
-            .setName("port")
-            .setDescription("Nouveau port MQTT")
-            .setMinValue(MIN_NETWORK_PORT)
-            .setMaxValue(MAX_NETWORK_PORT)
-            .setRequired(false)
-        )
-        .addIntegerOption(opt =>
-          opt
-            .setName("rtc_port")
-            .setDescription("Nouveau port RTC pour les captures d'écran")
-            .setMinValue(MIN_NETWORK_PORT)
-            .setMaxValue(MAX_NETWORK_PORT)
-            .setRequired(false)
-        )
-        .addBooleanOption(opt =>
-          opt.setName("enabled").setDescription("Activer ou désactiver l'imprimante").setRequired(false)
+          opt.setName("rtc_port").setDescription("Nouveau port RTC pour les captures d'écran").setRequired(false)
         )
     )
 ].map(cmd => cmd.toJSON());
@@ -175,9 +132,6 @@ export const setupCommandHandlers = (): void => {
           break;
         case "list":
           await handlePrinterList(interaction);
-          break;
-        case "status":
-          await handlePrinterStatus(interaction);
           break;
         case "edit":
           await handlePrinterEdit(interaction);

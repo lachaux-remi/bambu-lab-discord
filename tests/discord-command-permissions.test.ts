@@ -7,8 +7,7 @@ const seams = vi.hoisted(() => ({
   edit: vi.fn(),
   list: vi.fn(),
   remove: vi.fn(),
-  screenshot: vi.fn(),
-  status: vi.fn()
+  screenshot: vi.fn()
 }));
 
 vi.mock("../src/services/discord/bot", () => ({ getDiscordClient: () => seams.client }));
@@ -17,7 +16,6 @@ vi.mock("../src/services/discord/commands/printer-edit", () => ({ handlePrinterE
 vi.mock("../src/services/discord/commands/printer-list", () => ({ handlePrinterList: seams.list }));
 vi.mock("../src/services/discord/commands/printer-remove", () => ({ handlePrinterRemove: seams.remove }));
 vi.mock("../src/services/discord/commands/printer-screenshot", () => ({ handlePrinterScreenshot: seams.screenshot }));
-vi.mock("../src/services/discord/commands/printer-status", () => ({ handlePrinterStatus: seams.status }));
 
 describe("printer slash command permissions", () => {
   beforeEach(() => {
@@ -73,15 +71,5 @@ describe("printer slash command permissions", () => {
     await handler(request);
 
     expect(seams.screenshot).toHaveBeenCalledWith(request);
-  });
-
-  it("dispatches the status subcommand through the protected printer command", async () => {
-    const { PermissionFlagsBits } = await import("discord.js");
-    const handler = await installHandler();
-    const request = interaction(new PermissionsBitField(PermissionFlagsBits.ManageGuild), "status");
-
-    await handler(request);
-
-    expect(seams.status).toHaveBeenCalledWith(request);
   });
 });
