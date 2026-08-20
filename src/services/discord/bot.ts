@@ -16,12 +16,18 @@ import type { DiscordFileAttachment, ForumTagPayload } from "../../types/discord
 import type { PrinterConfig } from "../../types/printer-config";
 
 const logger = getLogger("DiscordBot");
+const MAX_FORUM_TAGS = 20;
 
 let client: Client | null = null;
 
 // Cache des forum channels déjà récupérés
 const forumChannelCache: Map<string, ForumChannel> = new Map();
 const forumMutationQueues: Map<string, Promise<void>> = new Map();
+
+export type ForumTagPreparationResult =
+  | { status: "ready"; created: string[] }
+  | { status: "capacity"; maximum: number; required: number }
+  | { status: "failed" };
 
 export interface DiscordFailureReason {
   category: string;
@@ -180,22 +186,16 @@ const getForumChannel = async (channelId: string): Promise<ForumChannel | null> 
 const reconcileForumTagsUnlocked = async (
   forumChannelId: string,
   printerNames: readonly string[]
-): Promise<{ created: string[]; removed: string[] }> => {
+): Promise<ForumTagPreparationResult> => {
   const forum = await getForumChannel(forumChannelId);
   if (!forum) {
-    return { created: [], removed: [] };
+    return { status: "failed" };
   }
 
   try {
     logger.info({ channelId: forumChannelId }, "🏷️  Synchronizing forum tags...");
 
     const existing = forum.availableTags ?? [];
-    const desiredPayload: ForumTagPayload[] = existing.map(tag => ({
-      id: tag.id,
-      name: tag.name,
-      moderated: tag.moderated,
-      emoji: tag.emoji ? { id: tag.emoji.id, name: tag.emoji.name } : undefined
-    }));
     const desiredTags = new Map<string, { name: string; emoji: string }>();
     for (const definition of FORUM_TAG_DEFINITIONS) {
       desiredTags.set(normalizeTagName(definition.name), definition);
@@ -207,10 +207,40 @@ const reconcileForumTagsUnlocked = async (
       }
     }
 
+    let canonicalTagsUpdated = false;
+    const canonicalTags = new Map(
+      FORUM_TAG_DEFINITIONS.map(definition => [normalizeTagName(definition.name), definition])
+    );
+    const desiredPayload: ForumTagPayload[] = existing.map(tag => {
+      const canonicalTag = canonicalTags.get(normalizeTagName(tag.name ?? ""));
+      if (canonicalTag) {
+        const canonicalEmoji = { id: null, name: canonicalTag.emoji };
+        if (tag.moderated !== true || tag.emoji?.id !== null || tag.emoji.name !== canonicalTag.emoji) {
+          canonicalTagsUpdated = true;
+        }
+        return { id: tag.id, name: canonicalTag.name, moderated: true, emoji: canonicalEmoji };
+      }
+      return {
+        id: tag.id,
+        name: tag.name,
+        moderated: tag.moderated,
+        emoji: tag.emoji ? { id: tag.emoji.id, name: tag.emoji.name } : undefined
+      };
+    });
+
     const existingNames = new Set(existing.map(tag => normalizeTagName(tag.name ?? "")));
     const toCreate = Array.from(desiredTags.entries())
       .filter(([normalizedName]) => !existingNames.has(normalizedName))
       .map(([, tag]) => tag);
+
+    const requiredTagCount = existing.length + toCreate.length;
+    if (requiredTagCount > MAX_FORUM_TAGS) {
+      logger.warn(
+        { channelId: forumChannelId, current: existing.length, required: requiredTagCount, maximum: MAX_FORUM_TAGS },
+        "Forum tag capacity reached"
+      );
+      return { status: "capacity", maximum: MAX_FORUM_TAGS, required: requiredTagCount };
+    }
 
     for (const tag of toCreate) {
       desiredPayload.push({
@@ -220,9 +250,9 @@ const reconcileForumTagsUnlocked = async (
       });
     }
 
-    if (toCreate.length === 0) {
+    if (toCreate.length === 0 && !canonicalTagsUpdated) {
       logger.info({ channelId: forumChannelId }, "✅ Forum tags already in sync");
-      return { created: [], removed: [] };
+      return { status: "ready", created: [] };
     }
 
     const created = toCreate.map(tag => tag.name);
@@ -232,17 +262,18 @@ const reconcileForumTagsUnlocked = async (
     forumChannelCache.delete(forumChannelId);
 
     logger.info({ created }, "✅ Forum tags synchronized");
-    return { created, removed: [] };
+    return { status: "ready", created };
   } catch (error) {
     logger.error({ error }, "❌ Failed to reconcile forum tags");
-    return { created: [], removed: [] };
+    return { status: "failed" };
   }
 };
 
 export const ensureForumTags = async (forumChannelId: string): Promise<{ created: string[]; removed: string[] }> => {
   return queueForumMutation(forumChannelId, async () => {
     forumChannelCache.delete(forumChannelId);
-    return reconcileForumTagsUnlocked(forumChannelId, []);
+    const result = await reconcileForumTagsUnlocked(forumChannelId, []);
+    return { created: result.status === "ready" ? result.created : [], removed: [] };
   });
 };
 
@@ -270,53 +301,13 @@ export const reconcileConfiguredForumTags = async (printers: readonly PrinterCon
 /**
  * Ajoute un tag d'imprimante à un forum
  */
-const ensurePrinterTagUnlocked = async (forumChannelId: string, printerName: string): Promise<boolean> => {
-  const forum = await getForumChannel(forumChannelId);
-  if (!forum) {
-    return false;
-  }
-
-  try {
-    const existing = forum.availableTags ?? [];
-    const normalizedName = normalizeTagName(printerName);
-
-    // Check if tag already exists
-    if (existing.some(t => normalizeTagName(t.name ?? "") === normalizedName)) {
-      logger.debug({ printerName }, "Printer tag already exists");
-      return true;
-    }
-
-    // Add the new printer tag
-    const newPayload: ForumTagPayload[] = existing.map(t => ({
-      id: t.id,
-      name: t.name,
-      moderated: t.moderated,
-      emoji: t.emoji ? { id: t.emoji.id, name: t.emoji.name } : undefined
-    }));
-
-    newPayload.push({
-      name: printerName,
-      moderated: true,
-      emoji: { id: null, name: "🖨️" }
-    });
-
-    await forum.edit({ availableTags: newPayload });
-
-    // Refresh cache
-    forumChannelCache.delete(forumChannelId);
-
-    logger.info({ printerName, channelId: forumChannelId }, "✅ Printer tag created");
-    return true;
-  } catch (error) {
-    logger.error({ error, printerName }, "Failed to create printer tag");
-    return false;
-  }
-};
-
-export const ensurePrinterTag = async (forumChannelId: string, printerName: string): Promise<boolean> => {
+export const ensurePrinterTag = async (
+  forumChannelId: string,
+  printerName: string
+): Promise<ForumTagPreparationResult> => {
   return queueForumMutation(forumChannelId, async () => {
     forumChannelCache.delete(forumChannelId);
-    return ensurePrinterTagUnlocked(forumChannelId, printerName);
+    return reconcileForumTagsUnlocked(forumChannelId, [printerName]);
   });
 };
 

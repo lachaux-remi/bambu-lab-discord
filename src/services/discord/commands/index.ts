@@ -190,7 +190,11 @@ export const setupCommandHandlers = (): void => {
       }
     } catch (error) {
       logger.error({ error, subcommand }, "Error handling command");
-      if (!interaction.replied && !interaction.deferred) {
+      if (interaction.replied) {
+        await interaction.followUp({ content: "Une erreur est survenue", flags: MessageFlags.Ephemeral });
+      } else if (interaction.deferred) {
+        await interaction.editReply("Une erreur est survenue");
+      } else {
         await interaction.reply({ content: "Une erreur est survenue", flags: MessageFlags.Ephemeral });
       }
     }

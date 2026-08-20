@@ -101,6 +101,21 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
     return;
   }
 
+  if (updates.name || updates.forumChannelId) {
+    const tagPreparation = await ensurePrinterTag(
+      updates.forumChannelId ?? printer.forumChannelId,
+      updates.name ?? printer.name
+    );
+    if (tagPreparation.status !== "ready") {
+      await interaction.editReply(
+        tagPreparation.status === "capacity"
+          ? `❌ Le forum a atteint sa limite de ${tagPreparation.maximum} tags. Supprimez un tag avant de modifier l'imprimante.`
+          : "❌ Impossible de préparer les tags du forum. La configuration de l'imprimante reste inchangée."
+      );
+      return;
+    }
+  }
+
   // Appliquer les mises à jour
   const updated = updatePrinter(printerId, updates);
 
@@ -110,11 +125,6 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   }
 
   logger.info({ printerId, changes }, "Printer updated via command");
-
-  // Un renommage doit toujours rendre le nouveau tag disponible. L'ancien tag est conservé car il peut être utilisé.
-  if (updates.name || updates.forumChannelId) {
-    await ensurePrinterTag(updated.forumChannelId, updated.name);
-  }
 
   let lifecycleSucceeded = true;
   try {

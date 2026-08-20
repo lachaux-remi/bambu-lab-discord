@@ -4,7 +4,7 @@ import { DEFAULT_MQTT_PORT, DEFAULT_RTC_PORT } from "../../../constants";
 import { getLogger } from "../../../libs/logger";
 import { addPrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
-import { ensureForumTags, ensurePrinterTag } from "../bot";
+import { ensurePrinterTag } from "../bot";
 
 const logger = getLogger("PrinterAdd");
 
@@ -28,6 +28,16 @@ export const handlePrinterAdd = async (interaction: ChatInputCommandInteraction)
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+  const tagPreparation = await ensurePrinterTag(channel.id, name);
+  if (tagPreparation.status !== "ready") {
+    await interaction.editReply(
+      tagPreparation.status === "capacity"
+        ? `❌ Le forum a atteint sa limite de ${tagPreparation.maximum} tags. Supprimez un tag avant d'ajouter l'imprimante.`
+        : "❌ Impossible de préparer les tags du forum. Aucune imprimante n'a été ajoutée."
+    );
+    return;
+  }
+
   // Ajouter l'imprimante à la base de données
   const printer = addPrinter({
     name,
@@ -46,12 +56,6 @@ export const handlePrinterAdd = async (interaction: ChatInputCommandInteraction)
   }
 
   logger.info({ printerId: printer.id, name, ip }, "Printer added via command");
-
-  // S'assurer que les tags de base existent dans le forum
-  await ensureForumTags(channel.id);
-
-  // Créer le tag pour cette imprimante
-  await ensurePrinterTag(channel.id, name);
 
   // Démarrer l'imprimante automatiquement
   const started = await printerManager.startPrinter(printer.id);
