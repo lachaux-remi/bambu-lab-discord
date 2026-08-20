@@ -216,6 +216,7 @@ nul
 # Debug logs and images
 *-debug-*.log
 *-debug-*.jpg
+mqtt-debug-*.ndjson
 
 # Printer configuration (contains sensitive data)
 config/

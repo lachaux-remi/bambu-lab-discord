@@ -1,169 +1,279 @@
 /**
- * Script de débogage pour capturer les messages MQTT bruts de l'imprimante.
- * Utilisez ce script pour diagnostiquer les problèmes avec les événements MQTT.
+ * Capture MQTT messages as sanitized NDJSON suitable for sharing.
  *
  * Usage: pnpm run debug:mqtt
  *
- * Requires environment variables:
- * - PRINTER_ADDRESS: IP address of the printer
- * - PRINTER_ACCESS_CODE: Access code of the printer
- * - PRINTER_SERIAL_NUMBER: Serial number of the printer
- * - PRINTER_PORT (optional): MQTT port (default: 8883)
+ * Requires PRINTER_ADDRESS, PRINTER_ACCESS_CODE and PRINTER_SERIAL_NUMBER.
+ * PRINTER_PORT is optional and defaults to 8883.
  */
-import { appendFileSync, writeFileSync } from "fs";
 import { connect } from "mqtt";
-import { join } from "path";
+import type { MqttClient } from "mqtt";
+import { createHash, randomBytes } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import type { WriteStream } from "node:fs";
+import { isIP } from "node:net";
+import { join } from "node:path";
 
 import { getBambuTlsOptions } from "../libs/bambu-tls";
 import { getLogger } from "../libs/logger";
 
-const logger = getLogger("MQTT-Debug");
+type JsonPrimitive = boolean | null | number | string;
+type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+type Sanitizer = (value: unknown) => JsonValue;
 
-// Configuration from environment variables
-const PRINTER_IP = process.env.PRINTER_ADDRESS!;
-const PRINTER_PORT = process.env.PRINTER_PORT || "8883";
-const PRINTER_ACCESS_CODE = process.env.PRINTER_ACCESS_CODE!;
-const PRINTER_SERIAL = process.env.PRINTER_SERIAL_NUMBER!;
-const BROKER_ADDRESS = `mqtts://${PRINTER_IP}:${PRINTER_PORT}`;
-
-if (!PRINTER_IP || !PRINTER_ACCESS_CODE || !PRINTER_SERIAL) {
-  logger.error("Missing required environment variables: PRINTER_ADDRESS, PRINTER_ACCESS_CODE, PRINTER_SERIAL_NUMBER");
-  process.exit(1);
+interface ValidCaptureRecord {
+  timestamp: string;
+  key: string;
+  payload: JsonValue;
 }
 
-// Créer un fichier de log avec timestamp
-const logFileName = join(process.cwd(), `mqtt-debug-${Date.now()}.log`);
-logger.info(`Logging to file: ${logFileName}`);
+interface InvalidCaptureRecord {
+  timestamp: string;
+  key: "invalid_json";
+  error: {
+    byteLength: number;
+    sha256: string;
+  };
+}
 
-// Initialiser le fichier
-writeFileSync(logFileName, `MQTT Debug Log - Started at ${new Date().toISOString()}\n${"=".repeat(100)}\n\n`);
+export type CaptureRecord = InvalidCaptureRecord | ValidCaptureRecord;
 
-// Helper pour logger à la fois dans console et fichier
-const logToFile = (message: string) => {
-  appendFileSync(logFileName, `${message}\n`);
+const REDACTED = "[REDACTED]";
+const REDACTED_URL = "[REDACTED_URL]";
+const CREDENTIAL_KEY =
+  /(^auth$|accesscode|password|passwd|authorization|token|apikey|secret|credential|encryptionkey|cryptkey|privatekey|clientkey|signature)/;
+const IDENTITY_KEY = /(^id$|(id|uuid)$)/;
+const FUNCTIONAL_ID_KEY = /^(sequence|ams|slot|plate|tray|nozzle)(id|uuid)$/;
+const PROJECT_NAME_KEY =
+  /(^file$|^path$|(subtask|project|job).*(name|path|file)|gcode(file|path|name)|filename|filepath)/;
+const SERIAL_KEY = /(^sn$|serial)/;
+const IP_KEY = /(^ip$|ipaddress$|ipv[46]$|hostname$|hostaddress$)/;
+const URL = /[a-z][a-z\d+.-]*:\/\//i;
+const SIGNED_URL_FRAGMENT = /(x-amz-(credential|signature)|[?&](signature|credential|token)=)/i;
+
+const normalizeKey = (key: string): string => key.replaceAll(/[^a-z\d]/gi, "").toLowerCase();
+
+const pseudonym = (salt: string, kind: string, value: unknown): string => {
+  const digest = createHash("sha256")
+    .update(salt)
+    .update("\0")
+    .update(JSON.stringify(value))
+    .digest("hex")
+    .slice(0, 12);
+  return `[${kind}_${digest}]`;
 };
 
-const topicReport = `device/${PRINTER_SERIAL}/report`;
-const topicRequest = `device/${PRINTER_SERIAL}/request`;
+/** Creates a non-mutating recursive sanitizer with stable pseudonyms for one capture. */
+export const createCaptureSanitizer = (salt = randomBytes(32).toString("hex")): Sanitizer => {
+  const sanitize = (value: unknown, sourceKey = ""): JsonValue => {
+    const key = normalizeKey(sourceKey);
 
-logger.info(`Connecting to ${BROKER_ADDRESS}`);
-logger.info(`Serial: ${PRINTER_SERIAL}`);
+    if (CREDENTIAL_KEY.test(key)) {
+      return REDACTED;
+    }
+    if (IDENTITY_KEY.test(key) && !FUNCTIONAL_ID_KEY.test(key)) {
+      return pseudonym(salt, "ID", value);
+    }
+    if (SERIAL_KEY.test(key)) {
+      return pseudonym(salt, "SERIAL", value);
+    }
+    if (IP_KEY.test(key)) {
+      return pseudonym(salt, "IP", value);
+    }
+    if (PROJECT_NAME_KEY.test(key)) {
+      return pseudonym(salt, "PROJECT", value);
+    }
+    if (typeof value === "string") {
+      if (URL.test(value) || SIGNED_URL_FRAGMENT.test(value)) {
+        return REDACTED_URL;
+      }
+      if (isIP(value) !== 0) {
+        return pseudonym(salt, "IP", value);
+      }
+      return value;
+    }
+    if (value === null || typeof value === "boolean" || typeof value === "number") {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.map(item => sanitize(item, sourceKey));
+    }
+    if (typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([childKey, child]) => [childKey, sanitize(child, childKey)])
+      );
+    }
+    return String(value);
+  };
 
-const client = connect(BROKER_ADDRESS, {
-  username: "bblp",
-  password: PRINTER_ACCESS_CODE,
-  reconnectPeriod: 1,
-  ...getBambuTlsOptions(PRINTER_SERIAL)
-});
+  return value => sanitize(value);
+};
 
-client.on("connect", () => {
-  logger.info("✓ Connected to printer");
-  logToFile(`\n[${new Date().toISOString()}] ✓ Connected to printer`);
+export const createCaptureRecord = (
+  payload: Buffer,
+  timestamp = new Date().toISOString(),
+  sanitize = createCaptureSanitizer()
+): CaptureRecord => {
+  try {
+    const parsed: unknown = JSON.parse(payload.toString("utf8"));
+    const key =
+      parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? Object.keys(parsed)[0] : undefined;
+    return { timestamp, key: key ?? "value", payload: sanitize(parsed) };
+  } catch {
+    return {
+      timestamp,
+      key: "invalid_json",
+      error: {
+        byteLength: payload.byteLength,
+        sha256: createHash("sha256").update(payload).digest("hex")
+      }
+    };
+  }
+};
 
-  client.subscribe(topicReport);
+export const formatCaptureRecord = (record: CaptureRecord): string => `${JSON.stringify(record)}\n`;
 
-  // Demander tous les statuts
-  client.publish(
-    topicRequest,
-    JSON.stringify({
-      pushing: {
-        sequence_id: "1",
-        command: "pushall"
-      },
-      user_id: 123_456_789
-    })
-  );
+const display = (value: JsonValue | undefined): string => String(value ?? "N/A");
 
-  logger.info("Listening for messages... (Press Ctrl+C to stop)");
-  logToFile(`[${new Date().toISOString()}] Listening for messages...\n`);
-  logger.info("─".repeat(80));
-});
+export const formatConsoleSummary = (record: CaptureRecord, previousState?: string): string => {
+  if ("error" in record) {
+    return `[${record.timestamp}] invalid JSON bytes=${record.error.byteLength} sha256=${record.error.sha256}`;
+  }
 
-client.on("message", (topic: string, payload: Buffer) => {
-  if (topic !== topicReport) {
+  const root = record.payload;
+  const print =
+    root !== null && !Array.isArray(root) && typeof root === "object" && "print" in root ? root.print : undefined;
+  if (print === null || Array.isArray(print) || typeof print !== "object") {
+    return `[${record.timestamp}] key=${record.key}`;
+  }
+
+  const currentState = typeof print.gcode_state === "string" ? print.gcode_state : undefined;
+  const state =
+    previousState && currentState && previousState !== currentState ? `${previousState}→${currentState}` : currentState;
+  const details = [
+    `command=${display(print.command)}`,
+    `state=${display(state)}`,
+    `progress=${display(print.mc_percent)}%`,
+    `layer=${display(print.layer_num)}/${display(print.total_layer_num)}`,
+    `remaining=${display(print.mc_remaining_time)}min`
+  ];
+  if (print.subtask_name !== undefined) {
+    details.push(`project=${display(print.subtask_name)}`);
+  }
+  if (Array.isArray(print.ams_mapping)) {
+    details.push(`ams=[${print.ams_mapping.map(display).join(",")}]`);
+  }
+  return `[${record.timestamp}] print ${details.join(" ")}`;
+};
+
+const closeStream = (stream: WriteStream): Promise<void> =>
+  new Promise((resolve, reject) => {
+    stream.once("error", reject);
+    stream.end(resolve);
+  });
+
+const closeClient = (client: MqttClient): Promise<void> =>
+  new Promise((resolve, reject) => {
+    client.end(false, {}, error => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+
+export const runMqttCapture = async (): Promise<void> => {
+  const logger = getLogger("MQTT-Debug");
+  const printerIp = process.env.PRINTER_ADDRESS;
+  const printerPort = process.env.PRINTER_PORT || "8883";
+  const accessCode = process.env.PRINTER_ACCESS_CODE;
+  const printerSerial = process.env.PRINTER_SERIAL_NUMBER;
+
+  if (!printerIp || !accessCode || !printerSerial) {
+    logger.error("Missing required environment variables: PRINTER_ADDRESS, PRINTER_ACCESS_CODE, PRINTER_SERIAL_NUMBER");
+    process.exitCode = 1;
     return;
   }
 
-  try {
-    const data = JSON.parse(payload.toString());
-    const key = Object.keys(data)[0];
-    const timestamp = new Date().toISOString();
+  const outputPath = join(process.cwd(), `mqtt-debug-${Date.now()}.ndjson`);
+  const output = createWriteStream(outputPath, { flags: "wx" });
+  const sanitize = createCaptureSanitizer();
+  const topicReport = `device/${printerSerial}/report`;
+  const topicRequest = `device/${printerSerial}/request`;
+  const client = connect(`mqtts://${printerIp}:${printerPort}`, {
+    username: "bblp",
+    password: accessCode,
+    reconnectPeriod: 5_000,
+    ...getBambuTlsOptions(printerSerial)
+  });
+  let shutdownPromise: Promise<void> | undefined;
+  let previousPrintState: string | undefined;
 
-    // Log complet du message brut dans le fichier
-    logToFile(`\n${"=".repeat(100)}`);
-    logToFile(`[${timestamp}] 📨 Message received - Key: ${key}`);
-    logToFile(`${"=".repeat(100)}`);
-    logToFile(JSON.stringify(data, null, 2));
+  logger.info({ outputPath }, "Writing sanitized MQTT capture (NDJSON)");
+  logger.info("Connecting to configured printer");
 
-    // Log complet du message brut dans la console
-    logger.info(`\n${"=".repeat(80)}`);
-    logger.info(`📨 Message received - Key: ${key}`);
-    logger.info(`${"=".repeat(80)}`);
-    logger.info(JSON.stringify(data, null, 2));
-    logger.info(`${"─".repeat(80)}\n`);
+  client.on("connect", () => {
+    logger.info("Connected; listening for MQTT messages (press Ctrl+C to stop)");
+    client.subscribe(topicReport);
+    client.publish(topicRequest, JSON.stringify({ pushing: { sequence_id: "1", command: "pushall" } }));
+  });
 
-    // Si c'est un message print, afficher des détails supplémentaires
-    if (data.print) {
-      const details = [
-        `📋 Print message details:`,
-        `   Command: ${data.print.command}`,
-        `   State: ${data.print.gcode_state || "N/A"}`,
-        `   Progress: ${data.print.mc_percent || "N/A"}%`,
-        `   Layer: ${data.print.layer_num || "N/A"}/${data.print.total_layer_num || "N/A"}`,
-        `   Project: ${data.print.subtask_name || "N/A"}`,
-        `   Remaining: ${data.print.mc_remaining_time || "N/A"}min`,
-        `   AMS Status: ${data.print.ams_status || "N/A"}`,
-        `   AMS Exist: ${data.print.ams_exist_bits || "N/A"}`,
-        `   Tray Now: ${data.print.tray_now || "N/A"}`,
-        `   Tray Target: ${data.print.tray_tar || "N/A"}`
-      ];
-
-      // Détecter multicolore si c'est un project_file
-      if (data.print.command === "project_file" && data.print.ams_mapping) {
-        const amsMapping = data.print.ams_mapping;
-        const usedFilaments = amsMapping.filter((slot: number) => slot >= 0);
-        const isMulticolor = usedFilaments.length > 1;
-        const colorMode = isMulticolor ? "🌈 MULTICOLORE" : "🎨 MONOCOLOR";
-
-        details.push(`   Use AMS: ${data.print.use_ams || "N/A"}`);
-        details.push(`   AMS Mapping: [${amsMapping.join(", ")}]`);
-        details.push(`   Filaments Used: ${usedFilaments.length}`);
-        details.push(`   Color Mode: ${colorMode}`);
-      }
-
-      details.push(`${"─".repeat(80)}\n`);
-
-      details.forEach(line => {
-        logger.info(line);
-        logToFile(line);
-      });
+  client.on("message", (topic: string, payload: Buffer) => {
+    if (topic !== topicReport) {
+      return;
     }
-  } catch (error) {
-    const errorMsg = `Failed to parse message: ${error}`;
-    const rawMsg = `Raw payload: ${payload.toString()}`;
-    logger.error(errorMsg);
-    logger.info(rawMsg);
-    logToFile(`\n[ERROR] ${errorMsg}`);
-    logToFile(rawMsg);
-  }
-});
+    const record = createCaptureRecord(payload, new Date().toISOString(), sanitize);
+    output.write(formatCaptureRecord(record));
+    logger.info(formatConsoleSummary(record, previousPrintState));
+    if ("payload" in record) {
+      const root = record.payload;
+      const print =
+        root !== null && !Array.isArray(root) && typeof root === "object" && "print" in root ? root.print : undefined;
+      if (
+        print !== null &&
+        !Array.isArray(print) &&
+        typeof print === "object" &&
+        typeof print.gcode_state === "string"
+      ) {
+        previousPrintState = print.gcode_state;
+      }
+    }
+  });
 
-client.on("error", error => {
-  const errorMsg = `❌ Error: ${error.message}`;
-  logger.error(errorMsg);
-  logToFile(`\n[${new Date().toISOString()}] ${errorMsg}`);
-});
+  client.on("error", () => {
+    logger.error("MQTT connection error; retrying in 5 seconds");
+  });
 
-client.on("disconnect", () => {
-  const msg = "Disconnected from printer";
-  logger.info(msg);
-  logToFile(`\n[${new Date().toISOString()}] ${msg}`);
-});
+  client.on("disconnect", () => {
+    logger.info("Disconnected from configured printer");
+  });
 
-// Graceful shutdown
-process.on("SIGINT", () => {
-  logger.info("\nShutting down...");
-  logToFile(`\n[${new Date().toISOString()}] Shutting down...`);
-  client.end();
-  process.exit(0);
-});
+  const shutdown = (signal: NodeJS.Signals): Promise<void> => {
+    shutdownPromise ??= (async () => {
+      logger.info({ signal }, "Stopping MQTT capture...");
+      await closeClient(client);
+      await closeStream(output);
+      logger.info({ outputPath }, "MQTT capture stopped");
+    })();
+    return shutdownPromise;
+  };
+
+  const handleSignal = (signal: NodeJS.Signals): void => {
+    void shutdown(signal).catch(() => {
+      logger.error("Failed to stop MQTT capture cleanly");
+      process.exitCode = 1;
+    });
+  };
+
+  process.once("SIGINT", () => handleSignal("SIGINT"));
+  process.once("SIGTERM", () => handleSignal("SIGTERM"));
+};
+
+if (require.main === module) {
+  void runMqttCapture().catch(() => {
+    const logger = getLogger("MQTT-Debug");
+    logger.error("Failed to run MQTT capture");
+    process.exitCode = 1;
+  });
+}
