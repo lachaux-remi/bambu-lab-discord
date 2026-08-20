@@ -1,0 +1,8 @@
+{
+  "repository": "bambulab/BambuStudio",
+  "branch": "master",
+  "path": "resources/cert/printer.cer",
+  "revision": "9a530f77c23d8c3430d1dbef02e103cd8bd6480e",
+  "upstreamSha256": "36f2bcee347ec7adce719b5fd350099591a4d3d0ec4e039c7019890d78e152a0",
+  "vendoredSha256": "168852cde67cd9c7648de5f95b46f7b950d1627966d2da6a968fd9ef9d034910"
+}

@@ -156,7 +156,9 @@ seule fois au démarrage lorsqu'il est activé. La variable accepte uniquement `
 Le bundle couvre les autorités BBL d'origine et CA2 RSA/ECC actuellement publiées par BambuStudio. Une nouvelle CA ou
 un nouveau modèle/firmware utilisant une autre chaîne nécessitera une mise à jour de ce bundle. Les ports pris en charge
 restent les ports MQTT et RTC configurés pour l'imprimante (8883 et 6000 par défaut). La provenance, la licence amont et
-les empreintes du bundle sont documentées dans [`src/libs/bambu-tls/README.md`](src/libs/bambu-tls/README.md).
+les empreintes du bundle sont documentées dans [`src/libs/bambu-tls/README.md`](src/libs/bambu-tls/README.md). Un
+workflow hebdomadaire signale dans une issue tout changement du fichier officiel BambuStudio, sans remplacer ni faire
+confiance automatiquement à de nouveaux certificats.
 
 ## Utilisation
 

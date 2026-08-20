@@ -1,0 +1,82 @@
+name: Monitor Bambu printer CA bundle
+
+on:
+  schedule:
+    - cron: "17 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency: bambu-ca-bundle-monitor
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Compare upstream bundle
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          metadata=".github/bambu-ca-bundle.json"
+          repository="$(jq -r '.repository' "$metadata")"
+          branch="$(jq -r '.branch' "$metadata")"
+          path="$(jq -r '.path' "$metadata")"
+          expected_sha="$(jq -r '.upstreamSha256' "$metadata")"
+          source_url="https://raw.githubusercontent.com/${repository}/${branch}/${path}"
+
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --max-filesize 1048576 "$source_url" --output "${RUNNER_TEMP}/bambu-printer-ca.pem"
+          observed_sha="$(sha256sum "${RUNNER_TEMP}/bambu-printer-ca.pem" | cut -d ' ' -f 1)"
+
+          echo "expected_sha=${expected_sha}" >> "$GITHUB_OUTPUT"
+          echo "observed_sha=${observed_sha}" >> "$GITHUB_OUTPUT"
+          echo "source_url=${source_url}" >> "$GITHUB_OUTPUT"
+          if [[ "$observed_sha" == "$expected_sha" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "The official BambuStudio CA bundle is unchanged."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "The official BambuStudio CA bundle changed: ${expected_sha} -> ${observed_sha}"
+          fi
+
+      - name: Open review issue
+        if: steps.bundle.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ steps.bundle.outputs.expected_sha }}
+          OBSERVED_SHA: ${{ steps.bundle.outputs.observed_sha }}
+          SOURCE_URL: ${{ steps.bundle.outputs.source_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          title="BambuStudio printer CA bundle changed upstream"
+          existing_issue="$(gh issue list --state open --search "${title} in:title" --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing_issue" ]]; then
+            echo "Review issue #${existing_issue} is already open."
+            exit 0
+          fi
+
+          body="$(cat <<EOF
+          The official BambuStudio printer CA bundle no longer matches the reviewed copy vendored by this project.
+
+          - Source: ${SOURCE_URL}
+          - Reviewed upstream SHA-256: \`${EXPECTED_SHA}\`
+          - Current upstream SHA-256: \`${OBSERVED_SHA}\`
+          - Detection run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          This workflow did **not** download the changed certificate into the application or modify the repository.
+          Before updating the vendored bundle, manually review BambuStudio's commit history, certificate identities,
+          fingerprints, validity periods, constraints, and license/provenance. Then update the bundle, metadata,
+          documentation, and TLS tests in a reviewed pull request.
+          EOF
+          )"
+
+          gh issue create --title "$title" --body "$body"
