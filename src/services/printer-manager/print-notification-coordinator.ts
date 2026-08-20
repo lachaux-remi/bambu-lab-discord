@@ -65,6 +65,7 @@ interface NotificationEvent {
   messageId?: string;
   identity?: PrintIdentity;
   lastFailure?: DiscordFailureReason;
+  reconcileOnlyAfterRecovery?: boolean;
 }
 
 interface ActivePrintState {
@@ -79,6 +80,10 @@ interface ActivePrintState {
     ready: boolean;
     alertEventId?: string;
     alertDelivered: boolean;
+    firstStatus?: {
+      state: PrintState;
+      isMulticolor: boolean;
+    };
   };
 }
 
@@ -236,6 +241,17 @@ export class PrintNotificationCoordinator {
       if (active.mqtt?.ready) {
         const alertEvent = this.findEvent(active.mqtt.alertEventId);
         if (!active.mqtt.alertDelivered) {
+          if (alertEvent?.status === "ambiguous") {
+            active.mqtt.firstStatus ??= {
+              state: context.status.state,
+              isMulticolor: context.status.isMulticolor ?? false
+            };
+            alertEvent.reconcileOnlyAfterRecovery = true;
+            alertEvent.nextAttemptAt = Date.now();
+            this.persist();
+            this.scheduleDelivery(0);
+            return;
+          }
           if (alertEvent && alertEvent.status !== "failed") {
             const attachments = this.detachAttachments(alertEvent);
             this.state.events = this.state.events.filter(event => event.id !== alertEvent.id);
@@ -243,25 +259,19 @@ export class PrintNotificationCoordinator {
             this.deleteAttachmentFiles(attachments);
           }
         } else if ([PrintState.RUNNING, PrintState.PAUSE].includes(context.status.state)) {
-          await this.addEvent({
-            ...context,
-            printKey: active.printKey,
-            kind: "mqtt-recovered",
-            result: {
-              embed: createBaseEmbed()
-                .setTitle("Communication rétablie")
-                .setDescription("La communication MQTT avec l’imprimante est rétablie.")
-            },
-            tags: [...getDiscordTagsForStatus(context.status), context.printerName]
-          });
+          await this.addRecoveryEvent(context.printerId, active, context.status, false);
         }
         delete active.mqtt;
       }
 
-      if ([PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(context.status.state)) {
+      if (
+        !active.mqtt?.ready &&
+        [PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(context.status.state)
+      ) {
         delete active.mqtt;
       }
       this.persist();
+      this.scheduleDelivery(0);
     });
   }
 
@@ -362,6 +372,29 @@ export class PrintNotificationCoordinator {
     active.cancellationRequested ||= context.status.cancellationRequested === true;
   }
 
+  private addRecoveryEvent(
+    printerId: string,
+    active: ActivePrintState,
+    status: Pick<Status, "state" | "isMulticolor">,
+    persistImmediately = true
+  ): Promise<string> {
+    return this.addEvent(
+      {
+        printerId,
+        printerName: active.printerName,
+        printKey: active.printKey,
+        kind: "mqtt-recovered",
+        result: {
+          embed: createBaseEmbed()
+            .setTitle("Communication rétablie")
+            .setDescription("La communication MQTT avec l’imprimante est rétablie.")
+        },
+        tags: [...getDiscordTagsForStatus(status), active.printerName]
+      },
+      persistImmediately
+    );
+  }
+
   private enqueuePrinter(printerId: string, operation: () => void | Promise<void>): Promise<void> {
     const previous = this.printerQueues.get(printerId) ?? Promise.resolve();
     const current = previous.then(operation, operation);
@@ -400,19 +433,22 @@ export class PrintNotificationCoordinator {
     }
   }
 
-  private async addEvent(input: {
-    printerId: string;
-    printerName: string;
-    printKey: string;
-    kind: EventKind;
-    result: EmbedResult;
-    tags: string[];
-    forumChannelId?: string;
-    title?: string;
-    terminal?: boolean;
-    identity?: PrintIdentity;
-    capture?: () => Promise<Buffer | null>;
-  }): Promise<string> {
+  private async addEvent(
+    input: {
+      printerId: string;
+      printerName: string;
+      printKey: string;
+      kind: EventKind;
+      result: EmbedResult;
+      tags: string[];
+      forumChannelId?: string;
+      title?: string;
+      terminal?: boolean;
+      identity?: PrintIdentity;
+      capture?: () => Promise<Buffer | null>;
+    },
+    persistImmediately = true
+  ): Promise<string> {
     const id = randomBytes(12).toString("hex");
     const active = this.state.activePrints[input.printerId];
     const event: NotificationEvent = {
@@ -441,7 +477,9 @@ export class PrintNotificationCoordinator {
     );
     event.embed = stripMissingAttachmentReferences(event.embed, omittedNames);
     this.state.events.push(event);
-    this.persist();
+    if (persistImmediately) {
+      this.persist();
+    }
     if (input.capture) {
       try {
         const screenshot = await input.capture();
@@ -462,7 +500,9 @@ export class PrintNotificationCoordinator {
       event.nextAttemptAt = Date.now();
       this.persist();
     }
-    this.scheduleDelivery(0);
+    if (persistImmediately) {
+      this.scheduleDelivery(0);
+    }
     return id;
   }
 
@@ -597,7 +637,8 @@ export class PrintNotificationCoordinator {
 
   private async deliver(event: NotificationEvent): Promise<void> {
     const active = this.state.activePrints[event.printerId];
-    const reconcileOnly = event.status === "ambiguous" && event.ambiguityChecks < 3;
+    const reconcileOnly =
+      event.status === "ambiguous" && (event.reconcileOnlyAfterRecovery === true || event.ambiguityChecks < 3);
     if (!reconcileOnly) {
       // Journal the uncertain outcome before calling Discord. If the process stops after
       // Discord accepts the mutation, startup will reconcile the marker instead of resending.
@@ -657,6 +698,19 @@ export class PrintNotificationCoordinator {
     if (result.status === "sent") {
       if (event.kind === "mqtt-lost" && active?.printKey === event.printKey && active.mqtt?.alertEventId === event.id) {
         active.mqtt.alertDelivered = true;
+        const firstStatus = active.mqtt.firstStatus;
+        if (firstStatus && [PrintState.RUNNING, PrintState.PAUSE].includes(firstStatus.state)) {
+          const recoveryEventId = await this.addRecoveryEvent(event.printerId, active, firstStatus, false);
+          const recoveryEventIndex = this.state.events.findIndex(candidate => candidate.id === recoveryEventId);
+          const lossEventIndex = this.state.events.findIndex(candidate => candidate.id === event.id);
+          if (recoveryEventIndex > lossEventIndex + 1) {
+            const [recoveryEvent] = this.state.events.splice(recoveryEventIndex, 1);
+            this.state.events.splice(lossEventIndex + 1, 0, recoveryEvent);
+          }
+        }
+        if (firstStatus) {
+          delete active.mqtt;
+        }
       }
       if (event.terminal && active?.printKey === event.printKey) {
         delete this.state.activePrints[event.printerId];
@@ -694,6 +748,24 @@ export class PrintNotificationCoordinator {
         }
       }
     } else {
+      if (
+        event.kind === "mqtt-lost" &&
+        event.reconcileOnlyAfterRecovery &&
+        result.status === "retryable" &&
+        result.reason.category === "discord-reconciliation-pending"
+      ) {
+        event.ambiguityChecks += 1;
+        if (event.ambiguityChecks >= 3) {
+          const attachments = this.detachAttachments(event);
+          this.state.events = this.state.events.filter(candidate => candidate.id !== event.id);
+          if (active?.printKey === event.printKey && active.mqtt?.alertEventId === event.id) {
+            delete active.mqtt;
+          }
+          this.persist();
+          this.deleteAttachmentFiles(attachments);
+          return;
+        }
+      }
       if (event.attempts === 1) {
         logger.warn(
           {
@@ -709,10 +781,12 @@ export class PrintNotificationCoordinator {
       if (result.status === "ambiguous") {
         event.status = "ambiguous";
         event.ambiguityChecks = 0;
+      } else if (event.reconcileOnlyAfterRecovery) {
+        event.status = "ambiguous";
       } else if (reconciledThreadId) {
         event.status = "ambiguous";
         event.ambiguityChecks = 0;
-      } else if (reconcileOnly && !reconciledThreadId) {
+      } else if (reconcileOnly && !reconciledThreadId && !event.reconcileOnlyAfterRecovery) {
         event.ambiguityChecks += 1;
       } else {
         event.status = "pending";

@@ -165,4 +165,38 @@ describe.sequential("reliable Discord delivery", () => {
     expect(create).not.toHaveBeenCalled();
     expect(setAppliedTags).toHaveBeenCalledWith(["running"]);
   });
+
+  it("bounds forum titles and classifies Discord validation errors as permanent", async () => {
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "thread-1" })
+      .mockRejectedValueOnce({ code: 50035, status: 400 })
+      .mockRejectedValueOnce({ code: 40_000, status: 400 });
+    const forum = { type: 15, availableTags: [], threads: { create } };
+    discord.fetch.mockResolvedValue(forum);
+    const { deliverPrintThread } = await import("../src/services/discord/bot");
+    const input = {
+      eventId: "long-title",
+      printKey: "print-1",
+      title: "🧪".repeat(101),
+      embed: new EmbedBuilder(),
+      tags: [],
+      forumChannelId: "forum-1",
+      reconcileOnly: false
+    };
+
+    await expect(deliverPrintThread(input)).resolves.toEqual({
+      status: "sent",
+      value: { threadId: "thread-1" }
+    });
+    expect(Array.from(create.mock.calls[0][0].name)).toHaveLength(100);
+    await expect(deliverPrintThread({ ...input, eventId: "invalid-form" })).resolves.toEqual({
+      status: "blocked",
+      reason: { category: "discord-validation-failed", code: 50035, status: 400 }
+    });
+    await expect(deliverPrintThread({ ...input, eventId: "other-bad-request" })).resolves.toEqual({
+      status: "retryable",
+      reason: { category: "discord-transient", code: 40_000, status: 400 }
+    });
+  });
 });

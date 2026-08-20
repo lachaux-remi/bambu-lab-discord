@@ -71,6 +71,9 @@ const errorDetails = (error: unknown): { code?: number; status?: number } => {
 const classifyDeliveryError = (error: unknown, afterMutation: boolean): DiscordDeliveryResult<never> => {
   const { code, status } = errorDetails(error);
   const details = { code, status };
+  if (code === 50035) {
+    return { status: "blocked", reason: { category: "discord-validation-failed", ...details } };
+  }
   if (code === 10003 || code === 50001 || code === 50013 || status === 403 || status === 404) {
     return { status: "blocked", reason: { category: "discord-access-blocked", ...details } };
   }
@@ -84,6 +87,11 @@ const classifyDeliveryError = (error: unknown, afterMutation: boolean): DiscordD
 };
 
 const markerFor = (eventId: string): string => `[event:${eventId}]`;
+
+const normalizeThreadTitle = (title: string): string =>
+  Array.from(title.trim() || "Impression")
+    .slice(0, 100)
+    .join("");
 
 const addEventMarker = (embed: EmbedBuilder, eventId: string): EmbedBuilder => {
   const marker = markerFor(eventId);
@@ -446,7 +454,7 @@ export const deliverPrintThread = async (
       return { status: "retryable", reason: { category: "discord-tags-unavailable" } };
     }
     const thread = await forum.threads.create({
-      name: input.title,
+      name: normalizeThreadTitle(input.title),
       autoArchiveDuration: 10080,
       appliedTags: appliedTags.length ? appliedTags : undefined,
       message: { embeds: [input.embed], files: makeAttachments(input.files) }

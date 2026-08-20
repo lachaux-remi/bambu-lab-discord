@@ -6,7 +6,7 @@ import type { Status } from "../types/printer-status";
  * @param status - Statut actuel de l'impression
  * @returns Tableau des noms de tags à appliquer
  */
-export const getDiscordTagsForStatus = (status: Status): string[] => {
+export const getDiscordTagsForStatus = (status: Pick<Status, "state" | "isMulticolor">): string[] => {
   const tags: string[] = [];
 
   // Tag de couleur (toujours présent)

@@ -266,6 +266,158 @@ describe.sequential("PrintNotificationCoordinator", () => {
     await coordinator.stop();
   });
 
+  it("reconciles an accepted ambiguous loss before delivering recovery and restored tags", async () => {
+    mocks.deliverThreadNotification
+      .mockResolvedValueOnce({
+        status: "ambiguous",
+        reason: { category: "discord-result-ambiguous" }
+      })
+      .mockResolvedValueOnce({ status: "sent", value: { messageId: "loss-accepted" } })
+      .mockResolvedValueOnce({ status: "sent", value: { messageId: "recovery" } });
+    const { PrintNotificationCoordinator } =
+      await import("../src/services/printer-manager/print-notification-coordinator");
+    const coordinator = new PrintNotificationCoordinator();
+    coordinator.start();
+    coordinator.recoverThread(context(), "thread-1");
+    await coordinator.communicationLost("printer-1");
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flushCurrentTimers();
+
+    await coordinator.communicationReady("printer-1");
+    await coordinator.recordStatus(context(PrintState.RUNNING));
+    await flushCurrentTimers();
+
+    expect(mocks.deliverThreadNotification).toHaveBeenCalledTimes(3);
+    expect(mocks.deliverThreadNotification.mock.calls[1][0]).toMatchObject({
+      reconcileOnly: true,
+      threadId: "thread-1"
+    });
+    expect(mocks.deliverThreadNotification.mock.calls.map(call => call[0].embed.data.title)).toEqual([
+      "Communication perdue",
+      "Communication perdue",
+      "Communication rétablie"
+    ]);
+    expect(mocks.deliverThreadNotification.mock.calls[2][0].tags).toEqual([
+      ForumTag.MONOCOLOR,
+      ForumTag.IN_PROGRESS,
+      "Workshop P1S"
+    ]);
+    expect(readOutbox().events).toEqual([]);
+    await coordinator.stop();
+  });
+
+  it("supersedes an ambiguous loss that remains absent without resending it after recovery", async () => {
+    mocks.deliverThreadNotification
+      .mockResolvedValueOnce({
+        status: "ambiguous",
+        reason: { category: "discord-result-ambiguous" }
+      })
+      .mockResolvedValue({
+        status: "retryable",
+        reason: { category: "discord-reconciliation-pending" }
+      });
+    const { PrintNotificationCoordinator } =
+      await import("../src/services/printer-manager/print-notification-coordinator");
+    const coordinator = new PrintNotificationCoordinator();
+    coordinator.start();
+    coordinator.recoverThread(context(), "thread-1");
+    await coordinator.communicationLost("printer-1");
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flushCurrentTimers();
+
+    await coordinator.communicationReady("printer-1");
+    await coordinator.recordStatus(context(PrintState.RUNNING));
+    await flushCurrentTimers();
+    await vi.advanceTimersByTimeAsync(4_000);
+    await vi.advanceTimersByTimeAsync(8_000);
+
+    expect(mocks.deliverThreadNotification).toHaveBeenCalledTimes(4);
+    expect(mocks.deliverThreadNotification.mock.calls.slice(1).every(call => call[0].reconcileOnly)).toBe(true);
+    expect(
+      mocks.deliverThreadNotification.mock.calls.some(call => call[0].embed.data.title === "Communication rétablie")
+    ).toBe(false);
+    expect(readOutbox().events).toEqual([]);
+    expect(readOutbox().activePrints["printer-1"].mqtt).toBeUndefined();
+    await coordinator.stop();
+  });
+
+  it("resumes ambiguous loss reconciliation after a crash with the first valid status intact", async () => {
+    mocks.deliverThreadNotification.mockResolvedValueOnce({
+      status: "ambiguous",
+      reason: { category: "discord-result-ambiguous" }
+    });
+    let module = await import("../src/services/printer-manager/print-notification-coordinator");
+    let coordinator = new module.PrintNotificationCoordinator();
+    coordinator.start();
+    coordinator.recoverThread(context(), "thread-1");
+    await coordinator.communicationLost("printer-1");
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flushCurrentTimers();
+    await coordinator.communicationReady("printer-1");
+    await coordinator.recordStatus(context(PrintState.PAUSE));
+    expect(readOutbox().activePrints["printer-1"].mqtt.firstStatus).toEqual({
+      state: PrintState.PAUSE,
+      isMulticolor: false
+    });
+    await coordinator.stop();
+
+    mocks.deliverThreadNotification
+      .mockResolvedValueOnce({ status: "sent", value: { messageId: "loss-accepted" } })
+      .mockResolvedValueOnce({ status: "sent", value: { messageId: "recovery" } });
+    vi.resetModules();
+    module = await import("../src/services/printer-manager/print-notification-coordinator");
+    coordinator = new module.PrintNotificationCoordinator();
+    coordinator.start();
+    await flushCurrentTimers();
+
+    expect(mocks.deliverThreadNotification.mock.calls.map(call => call[0].embed.data.title)).toEqual([
+      "Communication perdue",
+      "Communication perdue",
+      "Communication rétablie"
+    ]);
+    expect(mocks.deliverThreadNotification.mock.calls[2][0].tags).toContain(ForumTag.PAUSED);
+    expect(readOutbox().activePrints["printer-1"].mqtt).toBeUndefined();
+    await coordinator.stop();
+  });
+
+  it("orders a terminal after ambiguous loss resolution without announcing recovery", async () => {
+    mocks.deliverThreadNotification
+      .mockResolvedValueOnce({
+        status: "ambiguous",
+        reason: { category: "discord-result-ambiguous" }
+      })
+      .mockResolvedValueOnce({ status: "sent", value: { messageId: "loss-accepted" } })
+      .mockResolvedValueOnce({ status: "sent", value: { messageId: "terminal" } });
+    const { PrintNotificationCoordinator } =
+      await import("../src/services/printer-manager/print-notification-coordinator");
+    const coordinator = new PrintNotificationCoordinator();
+    coordinator.start();
+    coordinator.recoverThread(context(), "thread-1");
+    await coordinator.communicationLost("printer-1");
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flushCurrentTimers();
+
+    const terminal = context(PrintState.FAILED);
+    await coordinator.communicationReady("printer-1");
+    await coordinator.recordStatus(terminal);
+    await coordinator.enqueueNotification(
+      terminal,
+      { embed: new EmbedBuilder().setTitle("Terminal") },
+      [ForumTag.FAILED],
+      true
+    );
+    await flushCurrentTimers();
+
+    expect(mocks.deliverThreadNotification.mock.calls.map(call => call[0].embed.data.title)).toEqual([
+      "Communication perdue",
+      "Communication perdue",
+      "Terminal"
+    ]);
+    expect(readOutbox().events).toEqual([]);
+    expect(mocks.removeActivePrintThread).toHaveBeenCalledWith("printer-1");
+    await coordinator.stop();
+  });
+
   it("restores cancellation intent after restart and clears it only with terminal acknowledgement", async () => {
     let module = await import("../src/services/printer-manager/print-notification-coordinator");
     let coordinator = new module.PrintNotificationCoordinator();
