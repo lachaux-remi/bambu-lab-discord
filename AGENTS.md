@@ -265,6 +265,12 @@ installing them automatically.
   content between them; Release Please reparses that machine-generated block to create the tag.
 - Localize release text through `release-please-config.json`, not through manual edits to a generated release PR body.
 - The `release-pr-body.yml` workflow validates these invariants for `release-please--*` branches.
+- For every Release Please pull request an agent handles, post or update one French pull request comment titled
+  `Checklist de validation terrain`; keep the generated pull request body untouched and avoid duplicate checklist
+  comments. Include checkboxes for a real-printer MQTT status cycle, Discord thread/embed/image/tag delivery, an RTC
+  screenshot with chamber-light restoration, MQTT outages shorter and longer than 60 seconds, recovery tag restoration,
+  and bot restart during an active print without a duplicate thread. Add release-specific manual checks when its changes
+  affect other external behavior. Unchecked items are review information, never authorization to merge.
 
 ## Key Types
 
