@@ -5,7 +5,7 @@ import { CommandResult, MessageCommand, PrintState } from "../src/enums";
 import type { PrinterConfig } from "../src/types/printer-config";
 
 const mocks = vi.hoisted(() => {
-  const state = { cancellationRequested: false, hasTarget: false };
+  const state = { cancellationRequested: false, targets: new Set<string>() };
   return {
     connect: vi.fn(),
     getPrinter: vi.fn(),
@@ -31,20 +31,24 @@ const mocks = vi.hoisted(() => {
           state.cancellationRequested = false;
         }
       }),
-      hasPrintTarget: vi.fn(() => state.hasTarget),
-      recoverThread: vi.fn(() => {
-        state.hasTarget = true;
+      hasPrintTarget: vi.fn((printerId: string, printKey: string) => state.targets.has(`${printerId}:${printKey}`)),
+      recoverThread: vi.fn((context: { printerId: string; printKey: string }) => {
+        state.targets.add(`${context.printerId}:${context.printKey}`);
       }),
-      discardPrint: vi.fn(() => {
-        state.hasTarget = false;
+      discardPrint: vi.fn((printerId: string) => {
+        for (const target of state.targets) {
+          if (target.startsWith(`${printerId}:`)) {
+            state.targets.delete(target);
+          }
+        }
         state.cancellationRequested = false;
       }),
-      enqueueThreadCreation: vi.fn(async () => {
-        state.hasTarget = true;
+      enqueueThreadCreation: vi.fn(async (context: { printerId: string; printKey: string }) => {
+        state.targets.add(`${context.printerId}:${context.printKey}`);
       }),
-      enqueueNotification: vi.fn(async (_context, _result, _tags, terminal: boolean) => {
+      enqueueNotification: vi.fn(async (context, _result, _tags, terminal: boolean) => {
         if (terminal) {
-          state.hasTarget = false;
+          state.targets.delete(`${context.printerId}:${context.printKey}`);
           state.cancellationRequested = false;
         }
       })
@@ -138,7 +142,7 @@ describe("cancelled print MQTT cycle", () => {
     vi.resetModules();
     vi.clearAllMocks();
     mocks.state.cancellationRequested = false;
-    mocks.state.hasTarget = false;
+    mocks.state.targets.clear();
     mqttClient = new FakeMqttClient();
     mocks.connect.mockReturnValue(mqttClient);
     mocks.getPrinter.mockReturnValue(config);
@@ -202,5 +206,43 @@ describe("cancelled print MQTT cycle", () => {
 
     await vi.waitFor(() => expect(mocks.printFailed).toHaveBeenCalledOnce());
     expect(mocks.printCancelled).not.toHaveBeenCalled();
+  });
+
+  it("does not finish STOP processing before cancellation persistence completes", async () => {
+    let finishPersistence: (() => void) | undefined;
+    mocks.coordinator.recordCancellationRequested.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finishPersistence = () => {
+            mocks.state.cancellationRequested = true;
+            resolve();
+          };
+        })
+    );
+    await startPrinter();
+    startPausedPrint();
+    await vi.waitFor(() => expect(mocks.coordinator.enqueueThreadCreation).toHaveBeenCalledOnce());
+
+    report({ command: MessageCommand.STOP, reason: CommandResult.SUCCESS, result: CommandResult.SUCCESS });
+    report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.FAILED, mc_percent: 0 });
+    await vi.waitFor(() => expect(mocks.coordinator.recordCancellationRequested).toHaveBeenCalledOnce());
+    expect(mocks.printCancelled).not.toHaveBeenCalled();
+    expect(mocks.printFailed).not.toHaveBeenCalled();
+
+    finishPersistence?.();
+    await vi.waitFor(() => expect(mocks.printCancelled).toHaveBeenCalledOnce());
+    expect(mocks.printFailed).not.toHaveBeenCalled();
+  });
+
+  it("creates a distinct target when a new print starts without project metadata", async () => {
+    await startPrinter();
+    report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.RUNNING, mc_percent: 10 });
+    report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.FINISH, mc_percent: 100 });
+    report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.RUNNING, mc_percent: 5 });
+
+    await vi.waitFor(() => expect(mocks.coordinator.enqueueThreadCreation).toHaveBeenCalledTimes(2));
+    const firstKey = mocks.coordinator.enqueueThreadCreation.mock.calls[0][0].printKey;
+    const secondKey = mocks.coordinator.enqueueThreadCreation.mock.calls[1][0].printKey;
+    expect(secondKey).not.toBe(firstKey);
   });
 });

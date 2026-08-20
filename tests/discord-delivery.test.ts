@@ -73,7 +73,10 @@ describe.sequential("reliable Discord delivery", () => {
         tags: [],
         reconcileOnly: false
       })
-    ).resolves.toEqual({ status: "blocked" });
+    ).resolves.toEqual({
+      status: "blocked",
+      reason: { category: "discord-access-blocked", code: 10003, status: undefined }
+    });
 
     discord.fetch.mockResolvedValueOnce({
       type: 15,
@@ -90,7 +93,10 @@ describe.sequential("reliable Discord delivery", () => {
         forumChannelId: "forum-1",
         reconcileOnly: false
       })
-    ).resolves.toEqual({ status: "ambiguous" });
+    ).resolves.toEqual({
+      status: "ambiguous",
+      reason: { category: "discord-result-ambiguous", code: undefined, status: undefined }
+    });
   });
 
   it("reconciles a previously accepted notification without sending it again", async () => {

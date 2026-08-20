@@ -202,6 +202,7 @@ describe("PrinterStatus", () => {
       state: PrintState.RUNNING,
       cancellationRequested: false
     });
+    expect(emittedStatuses[2].startedAt).toBeGreaterThan(emittedStatuses[1].startedAt!);
   });
 
   it("does not emit for unknown commands or non-critical remaining-time updates", async () => {

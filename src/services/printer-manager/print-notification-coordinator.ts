@@ -26,7 +26,7 @@ import {
   setActivePrintThread,
   writeJsonAtomic
 } from "../database";
-import { deliverPrintThread, deliverThreadNotification } from "../discord/bot";
+import { type DiscordFailureReason, deliverPrintThread, deliverThreadNotification } from "../discord/bot";
 import { createBaseEmbed } from "../discord/embeds";
 
 const logger = getLogger("PrintNotificationCoordinator");
@@ -61,8 +61,10 @@ interface NotificationEvent {
   forumChannelId?: string;
   title?: string;
   terminal?: boolean;
+  threadId?: string;
   messageId?: string;
   identity?: PrintIdentity;
+  lastFailure?: DiscordFailureReason;
 }
 
 interface ActivePrintState {
@@ -138,13 +140,24 @@ export class PrintNotificationCoordinator {
       return;
     }
     this.state = loadState();
+    const supersededAttachments: PersistedAttachment[] = [];
+    let stateChanged = false;
     for (const event of this.state.events) {
       if (event.status === "acquiring") {
         event.status = "pending";
         event.nextAttemptAt = Date.now();
+        stateChanged = true;
+      } else if (event.status === "superseded") {
+        supersededAttachments.push(...this.detachAttachments(event));
+        stateChanged = true;
       }
     }
+    this.state.events = this.state.events.filter(event => event.status !== "superseded");
+    if (stateChanged) {
+      this.persist();
+    }
     this.started = true;
+    this.deleteAttachmentFiles(supersededAttachments);
     this.cleanOrphanAttachments();
     for (const [printerId, active] of Object.entries(this.state.activePrints)) {
       if (active.mqtt && !active.mqtt.alertEventId) {
@@ -179,6 +192,7 @@ export class PrintNotificationCoordinator {
       cancellationRequested: this.state.activePrints[context.printerId]?.cancellationRequested ?? false,
       threadId
     };
+    this.backfillEventTargets(context.printerId, context.printKey, threadId);
     this.persist();
   }
 
@@ -206,30 +220,32 @@ export class PrintNotificationCoordinator {
   public recordStatus(context: PrintContext): Promise<void> {
     return this.enqueuePrinter(context.printerId, async () => {
       this.ensureStarted();
-      const previous = this.state.activePrints[context.printerId];
-      const samePrint = previous?.printKey === context.printKey;
-      const active: ActivePrintState = {
-        ...this.contextState(context),
-        cancellationRequested:
-          context.status.cancellationRequested === true ||
-          (samePrint && context.status.state !== PrintState.PREPARE && previous.cancellationRequested),
-        ...(samePrint && previous.threadId ? { threadId: previous.threadId } : {}),
-        ...(samePrint && previous.mqtt ? { mqtt: previous.mqtt } : {})
-      };
-      this.state.activePrints[context.printerId] = active;
+      const active = this.state.activePrints[context.printerId];
+      if (!active) {
+        return;
+      }
+      const samePrint = active.printKey === context.printKey;
+      if (samePrint && active.state === context.status.state) {
+        active.printerName = context.printerName;
+        active.isMulticolor = context.status.isMulticolor ?? false;
+      }
+      if (context.status.cancellationRequested === true) {
+        active.cancellationRequested = true;
+      }
 
       if (active.mqtt?.ready) {
         const alertEvent = this.findEvent(active.mqtt.alertEventId);
         if (!active.mqtt.alertDelivered) {
           if (alertEvent && alertEvent.status !== "failed") {
-            alertEvent.status = "superseded";
             const attachments = this.detachAttachments(alertEvent);
+            this.state.events = this.state.events.filter(event => event.id !== alertEvent.id);
             this.persist();
             this.deleteAttachmentFiles(attachments);
           }
         } else if ([PrintState.RUNNING, PrintState.PAUSE].includes(context.status.state)) {
           await this.addEvent({
             ...context,
+            printKey: active.printKey,
             kind: "mqtt-recovered",
             result: {
               embed: createBaseEmbed()
@@ -299,6 +315,27 @@ export class PrintNotificationCoordinator {
     capture?: () => Promise<Buffer | null>
   ): Promise<void> {
     return this.enqueuePrinter(context.printerId, async () => {
+      const active = this.state.activePrints[context.printerId];
+      const threadId = active?.printKey === context.printKey ? active.threadId : undefined;
+      const pendingTerminal = terminal
+        ? this.state.events.find(
+            event =>
+              event.printerId === context.printerId &&
+              event.terminal &&
+              ["acquiring", "pending", "ambiguous"].includes(event.status) &&
+              (threadId ? event.threadId === threadId : event.printKey === context.printKey)
+          )
+        : undefined;
+      if (pendingTerminal) {
+        if (active?.printKey === context.printKey) {
+          this.updateActiveStatus(active, context);
+          this.persist();
+        }
+        return;
+      }
+      if (active?.printKey === context.printKey) {
+        this.updateActiveStatus(active, context);
+      }
       await this.addEvent({ ...context, kind: "message", result, tags, terminal, capture });
     });
   }
@@ -316,6 +353,13 @@ export class PrintNotificationCoordinator {
       state: context.status.state,
       isMulticolor: context.status.isMulticolor ?? false
     };
+  }
+
+  private updateActiveStatus(active: ActivePrintState, context: PrintContext): void {
+    active.printerName = context.printerName;
+    active.state = context.status.state;
+    active.isMulticolor = context.status.isMulticolor ?? false;
+    active.cancellationRequested ||= context.status.cancellationRequested === true;
   }
 
   private enqueuePrinter(printerId: string, operation: () => void | Promise<void>): Promise<void> {
@@ -348,6 +392,14 @@ export class PrintNotificationCoordinator {
     return eventId ? this.state.events.find(event => event.id === eventId) : undefined;
   }
 
+  private backfillEventTargets(printerId: string, printKey: string, threadId: string): void {
+    for (const event of this.state.events) {
+      if (event.printerId === printerId && event.printKey === printKey && !event.threadId) {
+        event.threadId = threadId;
+      }
+    }
+  }
+
   private async addEvent(input: {
     printerId: string;
     printerName: string;
@@ -362,6 +414,7 @@ export class PrintNotificationCoordinator {
     capture?: () => Promise<Buffer | null>;
   }): Promise<string> {
     const id = randomBytes(12).toString("hex");
+    const active = this.state.activePrints[input.printerId];
     const event: NotificationEvent = {
       id,
       printerId: input.printerId,
@@ -378,6 +431,7 @@ export class PrintNotificationCoordinator {
       forumChannelId: input.forumChannelId,
       title: input.title,
       terminal: input.terminal,
+      threadId: active?.printKey === input.printKey ? active.threadId : undefined,
       identity: input.identity
     };
     const omittedNames = new Set(
@@ -565,27 +619,35 @@ export class PrintNotificationCoordinator {
             forumChannelId: event.forumChannelId ?? "",
             reconcileOnly
           })
-        : active?.threadId
+        : event.threadId
           ? await deliverThreadNotification({
               eventId: event.id,
-              threadId: active.threadId,
+              threadId: event.threadId,
               messageId: event.messageId,
               embed,
               files,
               tags: event.tags,
               reconcileOnly
             })
-          : { status: "retryable" as const };
+          : {
+              status: "retryable" as const,
+              reason: { category: "target-unavailable" }
+            };
 
     event.attempts += 1;
     if (result.value && "messageId" in result.value) {
       event.messageId = result.value.messageId;
     }
+    event.lastFailure = result.status === "sent" ? undefined : result.reason;
     const reconciledThreadId =
       event.kind === "create" && result.value && "threadId" in result.value ? result.value.threadId : undefined;
-    if (reconciledThreadId && active) {
-      active.threadId = reconciledThreadId;
-      setActivePrintThread(event.printerId, reconciledThreadId, event.identity);
+    if (reconciledThreadId) {
+      event.threadId = reconciledThreadId;
+      this.backfillEventTargets(event.printerId, event.printKey, reconciledThreadId);
+      if (active?.printKey === event.printKey) {
+        active.threadId = reconciledThreadId;
+        setActivePrintThread(event.printerId, reconciledThreadId, event.identity);
+      }
       if (result.status !== "sent") {
         event.status = "ambiguous";
         event.ambiguityChecks = 0;
@@ -593,7 +655,7 @@ export class PrintNotificationCoordinator {
     }
     let acknowledgedAttachments: PersistedAttachment[] = [];
     if (result.status === "sent") {
-      if (event.kind === "mqtt-lost" && active?.mqtt?.alertEventId === event.id) {
+      if (event.kind === "mqtt-lost" && active?.printKey === event.printKey && active.mqtt?.alertEventId === event.id) {
         active.mqtt.alertDelivered = true;
       }
       if (event.terminal && active?.printKey === event.printKey) {
@@ -604,6 +666,16 @@ export class PrintNotificationCoordinator {
       this.state.events = this.state.events.filter(candidate => candidate.id !== event.id);
     } else if (result.status === "blocked") {
       event.status = "failed";
+      logger.error(
+        {
+          eventId: event.id,
+          printerId: event.printerId,
+          printKey: event.printKey,
+          target: event.threadId ?? event.forumChannelId,
+          reason: event.lastFailure
+        },
+        "Discord notification permanently blocked"
+      );
       if (event.kind === "create") {
         for (const dependent of this.state.events) {
           if (
@@ -613,10 +685,27 @@ export class PrintNotificationCoordinator {
             ["pending", "ambiguous"].includes(dependent.status)
           ) {
             dependent.status = "failed";
+            dependent.lastFailure = {
+              category: "target-creation-blocked",
+              code: event.lastFailure?.code,
+              status: event.lastFailure?.status
+            };
           }
         }
       }
     } else {
+      if (event.attempts === 1) {
+        logger.warn(
+          {
+            eventId: event.id,
+            printerId: event.printerId,
+            printKey: event.printKey,
+            target: event.threadId ?? event.forumChannelId,
+            reason: event.lastFailure
+          },
+          "Discord notification delivery will be retried"
+        );
+      }
       if (result.status === "ambiguous") {
         event.status = "ambiguous";
         event.ambiguityChecks = 0;

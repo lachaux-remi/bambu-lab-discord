@@ -23,11 +23,15 @@ let client: Client | null = null;
 const forumChannelCache: Map<string, ForumChannel> = new Map();
 const forumMutationQueues: Map<string, Promise<void>> = new Map();
 
+export interface DiscordFailureReason {
+  category: string;
+  code?: number;
+  status?: number;
+}
+
 export type DiscordDeliveryResult<T> =
-  | { status: "sent"; value?: T }
-  | { status: "retryable"; value?: T }
-  | { status: "blocked"; value?: T }
-  | { status: "ambiguous"; value?: T };
+  | { status: "sent"; value?: T; reason?: never }
+  | { status: "retryable" | "blocked" | "ambiguous"; value?: T; reason: DiscordFailureReason };
 
 interface DeliveryBase {
   eventId: string;
@@ -66,16 +70,17 @@ const errorDetails = (error: unknown): { code?: number; status?: number } => {
 
 const classifyDeliveryError = (error: unknown, afterMutation: boolean): DiscordDeliveryResult<never> => {
   const { code, status } = errorDetails(error);
+  const details = { code, status };
   if (code === 10003 || code === 50001 || code === 50013 || status === 403 || status === 404) {
-    return { status: "blocked" };
+    return { status: "blocked", reason: { category: "discord-access-blocked", ...details } };
   }
   if (status === 429) {
-    return { status: "retryable" };
+    return { status: "retryable", reason: { category: "discord-rate-limited", ...details } };
   }
   if (afterMutation && (status === undefined || status >= 500)) {
-    return { status: "ambiguous" };
+    return { status: "ambiguous", reason: { category: "discord-result-ambiguous", ...details } };
   }
-  return { status: "retryable" };
+  return { status: "retryable", reason: { category: "discord-transient", ...details } };
 };
 
 const markerFor = (eventId: string): string => `[event:${eventId}]`;
@@ -400,7 +405,7 @@ export const deliverPrintThread = async (
   input: PrintThreadDeliveryInput
 ): Promise<DiscordDeliveryResult<{ threadId: string }>> => {
   if (!client) {
-    return { status: "retryable" };
+    return { status: "retryable", reason: { category: "discord-unavailable" } };
   }
   addEventMarker(input.embed, input.eventId);
 
@@ -408,7 +413,7 @@ export const deliverPrintThread = async (
   try {
     const channel = await client.channels.fetch(input.forumChannelId);
     if (!channel || channel.type !== ChannelType.GuildForum) {
-      return { status: "blocked" };
+      return { status: "blocked", reason: { category: "discord-target-invalid" } };
     }
     forum = channel as ForumChannel;
     forumChannelCache.set(input.forumChannelId, forum);
@@ -421,11 +426,11 @@ export const deliverPrintThread = async (
     try {
       threadId = await findForumThreadByMarker(forum, markerFor(input.eventId));
       if (!threadId) {
-        return { status: "retryable" };
+        return { status: "retryable", reason: { category: "discord-reconciliation-pending" } };
       }
       const thread = await client.channels.fetch(threadId);
       if (!thread || !thread.isThread()) {
-        return { status: "blocked" };
+        return { status: "blocked", reason: { category: "discord-target-invalid" } };
       }
       await applyDeliveryTags(thread, input.tags);
       return { status: "sent", value: { threadId } };
@@ -438,7 +443,7 @@ export const deliverPrintThread = async (
   try {
     const appliedTags = getTagIdsForNames(forum, input.tags);
     if (appliedTags.length !== new Set(input.tags.map(normalizeTagName)).size) {
-      return { status: "retryable" };
+      return { status: "retryable", reason: { category: "discord-tags-unavailable" } };
     }
     const thread = await forum.threads.create({
       name: input.title,
@@ -478,7 +483,7 @@ export const deliverThreadNotification = async (
   input: ThreadNotificationDeliveryInput
 ): Promise<DiscordDeliveryResult<{ messageId: string }>> => {
   if (!client) {
-    return { status: "retryable" };
+    return { status: "retryable", reason: { category: "discord-unavailable" } };
   }
   addEventMarker(input.embed, input.eventId);
 
@@ -486,7 +491,7 @@ export const deliverThreadNotification = async (
   try {
     thread = await client.channels.fetch(input.threadId);
     if (!thread || !thread.isThread()) {
-      return { status: "blocked" };
+      return { status: "blocked", reason: { category: "discord-target-invalid" } };
     }
   } catch (error) {
     return classifyDeliveryError(error, false);
@@ -497,7 +502,7 @@ export const deliverThreadNotification = async (
     try {
       messageId = (await findThreadMessageByMarker(thread, markerFor(input.eventId))) ?? undefined;
       if (!messageId) {
-        return { status: "retryable" };
+        return { status: "retryable", reason: { category: "discord-reconciliation-pending" } };
       }
     } catch (error) {
       return classifyDeliveryError(error, false);

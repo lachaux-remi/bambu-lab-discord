@@ -437,9 +437,9 @@ class PrinterManager {
     client.on("ready", () => {
       void printNotificationCoordinator.communicationReady(instance.config.id);
     });
-    client.on("cancellationRequested", () => {
-      void printNotificationCoordinator.recordCancellationRequested(instance.config.id);
-    });
+    client.on("cancellationRequested", () =>
+      printNotificationCoordinator.recordCancellationRequested(instance.config.id)
+    );
     client.on("status", async (newStatus: Status, oldStatus: Status) => {
       printNotificationCoordinator.restoreCancellationRequested(instance.config.id, newStatus);
       instance.latestStatus = { ...newStatus };

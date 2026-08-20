@@ -11,7 +11,9 @@ const mocks = vi.hoisted(() => ({
   deliverPrintThread: vi.fn(),
   deliverThreadNotification: vi.fn(),
   setActivePrintThread: vi.fn().mockReturnValue(true),
-  removeActivePrintThread: vi.fn().mockReturnValue(true)
+  removeActivePrintThread: vi.fn().mockReturnValue(true),
+  loggerError: vi.fn(),
+  loggerWarn: vi.fn()
 }));
 
 vi.mock("../src/services/discord/bot", () => ({
@@ -27,7 +29,7 @@ vi.mock("../src/services/database", async importOriginal => {
   };
 });
 vi.mock("../src/libs/logger", () => ({
-  getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() })
+  getLogger: () => ({ debug: vi.fn(), error: mocks.loggerError, info: vi.fn(), warn: mocks.loggerWarn })
 }));
 
 const originalWorkingDirectory = process.cwd();
@@ -216,7 +218,7 @@ describe.sequential("PrintNotificationCoordinator", () => {
     await coordinator.stop();
   });
 
-  it("supersedes an undelivered loss alert and never emits a stale recovery sequence", async () => {
+  it("removes superseded loss alerts without accumulating stale recovery events", async () => {
     mocks.deliverThreadNotification.mockResolvedValue({ status: "retryable" });
     const { PrintNotificationCoordinator } =
       await import("../src/services/printer-manager/print-notification-coordinator");
@@ -233,7 +235,16 @@ describe.sequential("PrintNotificationCoordinator", () => {
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(mocks.deliverThreadNotification).toHaveBeenCalledOnce();
-    expect(readOutbox().events).toEqual([expect.objectContaining({ kind: "mqtt-lost", status: "superseded" })]);
+    expect(readOutbox().events).toEqual([]);
+
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      await coordinator.communicationLost("printer-1");
+      await vi.advanceTimersByTimeAsync(60_000);
+      await flushCurrentTimers();
+      await coordinator.communicationReady("printer-1");
+      await coordinator.recordStatus(context());
+      expect(readOutbox().events).toEqual([]);
+    }
     await coordinator.stop();
   });
 
@@ -280,6 +291,154 @@ describe.sequential("PrintNotificationCoordinator", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(readOutbox().activePrints).toEqual({});
     expect(mocks.removeActivePrintThread).toHaveBeenCalledWith("printer-1");
+    await coordinator.stop();
+  });
+
+  it("delivers a retried terminal to its original thread before creating the next print target", async () => {
+    mocks.deliverThreadNotification
+      .mockResolvedValueOnce({ status: "retryable" })
+      .mockResolvedValueOnce({ status: "sent", value: { messageId: "terminal-a" } });
+    mocks.deliverPrintThread.mockResolvedValue({ status: "sent", value: { threadId: "thread-b" } });
+    const { PrintNotificationCoordinator } =
+      await import("../src/services/printer-manager/print-notification-coordinator");
+    const coordinator = new PrintNotificationCoordinator();
+    const printA = context(PrintState.FAILED);
+    const printB = {
+      ...context(PrintState.RUNNING),
+      printKey: "printer-1:model:2",
+      status: status(PrintState.RUNNING, { startedAt: 2 })
+    };
+    coordinator.start();
+    coordinator.recoverThread(printA, "thread-a");
+    await coordinator.enqueueNotification(
+      printA,
+      { embed: new EmbedBuilder().setTitle("Terminal A") },
+      [ForumTag.FAILED],
+      true
+    );
+    await flushCurrentTimers();
+    expect(mocks.deliverThreadNotification).toHaveBeenLastCalledWith(expect.objectContaining({ threadId: "thread-a" }));
+
+    await coordinator.recordStatus(printB);
+    await coordinator.enqueueThreadCreation(
+      printB,
+      { embed: new EmbedBuilder().setTitle("Print B") },
+      [ForumTag.IN_PROGRESS],
+      "forum-1",
+      "Print B"
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushCurrentTimers();
+
+    expect(mocks.deliverThreadNotification).toHaveBeenCalledTimes(2);
+    expect(mocks.deliverThreadNotification).toHaveBeenLastCalledWith(expect.objectContaining({ threadId: "thread-a" }));
+    expect(mocks.deliverPrintThread).toHaveBeenCalledOnce();
+    expect(mocks.deliverThreadNotification.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.deliverPrintThread.mock.invocationCallOrder[0]
+    );
+    expect(readOutbox().activePrints["printer-1"]).toMatchObject({
+      printKey: printB.printKey,
+      threadId: "thread-b"
+    });
+    expect(mocks.removeActivePrintThread).not.toHaveBeenCalled();
+    await coordinator.stop();
+  });
+
+  it("coalesces a reconstructed terminal after restart onto the pending durable target", async () => {
+    let module = await import("../src/services/printer-manager/print-notification-coordinator");
+    let coordinator = new module.PrintNotificationCoordinator();
+    const original = context(PrintState.FAILED);
+    coordinator.start();
+    coordinator.recoverThread(original, "thread-a");
+    await coordinator.enqueueNotification(
+      original,
+      { embed: new EmbedBuilder().setTitle("Terminal A") },
+      [ForumTag.FAILED],
+      true
+    );
+    await coordinator.stop();
+
+    vi.resetModules();
+    module = await import("../src/services/printer-manager/print-notification-coordinator");
+    coordinator = new module.PrintNotificationCoordinator();
+    const reconstructed = {
+      ...context(PrintState.FAILED),
+      printKey: "printer-1:model:reconstructed",
+      status: status(PrintState.FAILED, { startedAt: 99 })
+    };
+    coordinator.start();
+    await coordinator.recordStatus(reconstructed);
+    coordinator.recoverThread(reconstructed, "thread-a");
+    await coordinator.enqueueNotification(
+      reconstructed,
+      { embed: new EmbedBuilder().setTitle("Reconstructed terminal A") },
+      [ForumTag.FAILED],
+      true
+    );
+
+    expect(readOutbox().events).toHaveLength(1);
+    await flushCurrentTimers();
+    expect(mocks.deliverThreadNotification).toHaveBeenCalledOnce();
+    expect(mocks.deliverThreadNotification).toHaveBeenCalledWith(expect.objectContaining({ threadId: "thread-a" }));
+    await coordinator.stop();
+  });
+
+  it("persists a state transition only in the same snapshot as its notification intent", async () => {
+    const { PrintNotificationCoordinator } =
+      await import("../src/services/printer-manager/print-notification-coordinator");
+    const coordinator = new PrintNotificationCoordinator();
+    const running = context(PrintState.RUNNING);
+    const failed = context(PrintState.FAILED);
+    coordinator.start();
+    coordinator.recoverThread(running, "thread-a");
+
+    await coordinator.recordStatus(failed);
+    expect(readOutbox()).toMatchObject({
+      events: [],
+      activePrints: { "printer-1": { state: PrintState.RUNNING } }
+    });
+
+    await coordinator.enqueueNotification(
+      failed,
+      { embed: new EmbedBuilder().setTitle("Terminal A") },
+      [ForumTag.FAILED],
+      true
+    );
+    expect(readOutbox()).toMatchObject({
+      events: [expect.objectContaining({ terminal: true, threadId: "thread-a" })],
+      activePrints: { "printer-1": { state: PrintState.FAILED, threadId: "thread-a" } }
+    });
+    await coordinator.stop();
+  });
+
+  it("persists a safe failure reason and logs a permanently blocked target", async () => {
+    mocks.deliverThreadNotification.mockResolvedValue({
+      status: "blocked",
+      reason: { category: "discord-access-blocked", code: 10003, status: 404 }
+    });
+    const { PrintNotificationCoordinator } =
+      await import("../src/services/printer-manager/print-notification-coordinator");
+    const coordinator = new PrintNotificationCoordinator();
+    coordinator.start();
+    coordinator.recoverThread(context(), "thread-a");
+    await coordinator.enqueueNotification(context(), { embed: new EmbedBuilder().setTitle("Blocked") }, [
+      ForumTag.IN_PROGRESS
+    ]);
+    await flushCurrentTimers();
+
+    expect(readOutbox().events[0]).toMatchObject({
+      status: "failed",
+      threadId: "thread-a",
+      lastFailure: { category: "discord-access-blocked", code: 10003, status: 404 }
+    });
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        printerId: "printer-1",
+        target: "thread-a",
+        reason: { category: "discord-access-blocked", code: 10003, status: 404 }
+      }),
+      "Discord notification permanently blocked"
+    );
     await coordinator.stop();
   });
 
