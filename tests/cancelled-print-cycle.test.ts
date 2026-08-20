@@ -4,13 +4,53 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandResult, MessageCommand, PrintState } from "../src/enums";
 import type { PrinterConfig } from "../src/types/printer-config";
 
-const mocks = vi.hoisted(() => ({
-  connect: vi.fn(),
-  getPrinter: vi.fn(),
-  printCancelled: vi.fn(),
-  printFailed: vi.fn(),
-  printProgress: vi.fn()
-}));
+const mocks = vi.hoisted(() => {
+  const state = { cancellationRequested: false, hasTarget: false };
+  return {
+    connect: vi.fn(),
+    getPrinter: vi.fn(),
+    printCancelled: vi.fn(),
+    printFailed: vi.fn(),
+    printProgress: vi.fn(),
+    state,
+    coordinator: {
+      start: vi.fn(),
+      stop: vi.fn().mockResolvedValue(undefined),
+      communicationLost: vi.fn().mockResolvedValue(undefined),
+      communicationReady: vi.fn().mockResolvedValue(undefined),
+      recordCancellationRequested: vi.fn(async () => {
+        state.cancellationRequested = true;
+      }),
+      restoreCancellationRequested: vi.fn((_printerId: string, status: { cancellationRequested?: boolean }) => {
+        if (state.cancellationRequested) {
+          status.cancellationRequested = true;
+        }
+      }),
+      recordStatus: vi.fn(async (context: { status: { state: PrintState } }) => {
+        if (context.status.state === PrintState.PREPARE) {
+          state.cancellationRequested = false;
+        }
+      }),
+      hasPrintTarget: vi.fn(() => state.hasTarget),
+      recoverThread: vi.fn(() => {
+        state.hasTarget = true;
+      }),
+      discardPrint: vi.fn(() => {
+        state.hasTarget = false;
+        state.cancellationRequested = false;
+      }),
+      enqueueThreadCreation: vi.fn(async () => {
+        state.hasTarget = true;
+      }),
+      enqueueNotification: vi.fn(async (_context, _result, _tags, terminal: boolean) => {
+        if (terminal) {
+          state.hasTarget = false;
+          state.cancellationRequested = false;
+        }
+      })
+    }
+  };
+});
 
 class FakeMqttClient extends EventEmitter {
   public connected = true;
@@ -54,6 +94,9 @@ vi.mock("../src/services/discord/embeds", () => {
     printStopped: vi.fn().mockResolvedValue(result)
   };
 });
+vi.mock("../src/services/printer-manager/print-notification-coordinator", () => ({
+  printNotificationCoordinator: mocks.coordinator
+}));
 
 const config: PrinterConfig = {
   id: "printer-fixture",
@@ -94,6 +137,8 @@ describe("cancelled print MQTT cycle", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mocks.state.cancellationRequested = false;
+    mocks.state.hasTarget = false;
     mqttClient = new FakeMqttClient();
     mocks.connect.mockReturnValue(mqttClient);
     mocks.getPrinter.mockReturnValue(config);

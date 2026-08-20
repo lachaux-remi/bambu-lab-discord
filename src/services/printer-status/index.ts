@@ -136,6 +136,9 @@ export default class PrinterStatus {
         return;
       }
       newStatus.cancellationRequested = true;
+      this.latestStatus.cancellationRequested = true;
+      await this.client.emitCancellationRequested();
+      return;
     } else {
       logger.warn({ command: data.command, keys: Object.keys(data) }, "Unknown message command type");
       return;

@@ -14,6 +14,12 @@ const mocks = vi.hoisted(() => {
     emitStatus: (newStatus: Status, oldStatus: Status) => Promise<void>;
   }> = [];
   const state: { nextConnection?: Promise<void>; nextConnectionError?: Error } = {};
+  const notificationTargets = new Set<string>();
+  const notificationThreadIds = new Map<string, string>();
+  const createPrintThread = vi.fn();
+  const setActivePrintThread = vi.fn();
+  const sendToThread = vi.fn();
+  const updateThreadTags = vi.fn();
 
   const Client = vi.fn(function () {
     let statusListener: StatusListener | undefined;
@@ -50,12 +56,12 @@ const mocks = vi.hoisted(() => {
     getPrinter: vi.fn(),
     getEnabledPrinters: vi.fn(),
     getActivePrintThread: vi.fn(),
-    setActivePrintThread: vi.fn(),
+    setActivePrintThread,
     removeActivePrintThread: vi.fn(),
-    createPrintThread: vi.fn(),
+    createPrintThread,
     isPrintThreadAvailable: vi.fn(),
-    sendToThread: vi.fn(),
-    updateThreadTags: vi.fn(),
+    sendToThread,
+    updateThreadTags,
     printStarted: vi.fn(),
     printRecovery: vi.fn(),
     printCancelled: vi.fn(),
@@ -64,7 +70,65 @@ const mocks = vi.hoisted(() => {
     printPaused: vi.fn(),
     printProgress: vi.fn(),
     printResumed: vi.fn(),
-    printStopped: vi.fn()
+    printStopped: vi.fn(),
+    notificationTargets,
+    notificationThreadIds,
+    coordinator: {
+      start: vi.fn(),
+      stop: vi.fn().mockResolvedValue(undefined),
+      communicationLost: vi.fn().mockResolvedValue(undefined),
+      communicationReady: vi.fn().mockResolvedValue(undefined),
+      recordCancellationRequested: vi.fn().mockResolvedValue(undefined),
+      restoreCancellationRequested: vi.fn(),
+      recordStatus: vi.fn().mockResolvedValue(undefined),
+      hasPrintTarget: vi.fn((printerId: string, printKey: string) =>
+        notificationTargets.has(`${printerId}:${printKey}`)
+      ),
+      recoverThread: vi.fn((context: { printerId: string; printKey: string }, threadId: string) => {
+        notificationTargets.add(`${context.printerId}:${context.printKey}`);
+        notificationThreadIds.set(`${context.printerId}:${context.printKey}`, threadId);
+      }),
+      discardPrint: vi.fn((printerId: string) => {
+        for (const key of notificationTargets) {
+          if (key.startsWith(`${printerId}:`)) {
+            notificationTargets.delete(key);
+          }
+        }
+      }),
+      enqueueThreadCreation: vi.fn(async (context: { printerId: string; printKey: string; status: Status }) => {
+        notificationTargets.add(`${context.printerId}:${context.printKey}`);
+        const threadId = await createPrintThread();
+        if (threadId) {
+          const { status } = context;
+          const identity = status.subtaskId
+            ? {
+                subtaskId: status.subtaskId,
+                taskId: status.taskId,
+                gcodeFile: status.gcodeFile,
+                plate: status.plate === undefined ? undefined : String(status.plate),
+                project: status.project
+              }
+            : status.taskId
+              ? { taskId: status.taskId, project: status.project }
+              : status.gcodeFile && status.project && status.plate
+                ? { gcodeFile: status.gcodeFile, project: status.project, plate: String(status.plate) }
+                : { project: status.project };
+          notificationThreadIds.set(`${context.printerId}:${context.printKey}`, threadId);
+          setActivePrintThread(context.printerId, threadId, identity);
+        }
+      }),
+      enqueueNotification: vi.fn(async (context, result, tags, terminal) => {
+        const key = `${context.printerId}:${context.printKey}`;
+        const threadId = notificationThreadIds.get(key) ?? "thread";
+        await sendToThread(threadId, result.embed, result.files);
+        await updateThreadTags(threadId, tags);
+        if (terminal) {
+          notificationTargets.delete(key);
+          notificationThreadIds.delete(key);
+          mocks.removeActivePrintThread(context.printerId);
+        }
+      })
+    }
   };
 });
 
@@ -92,6 +156,9 @@ vi.mock("../src/services/discord/embeds", () => ({
   printProgress: mocks.printProgress,
   printResumed: mocks.printResumed,
   printStopped: mocks.printStopped
+}));
+vi.mock("../src/services/printer-manager/print-notification-coordinator", () => ({
+  printNotificationCoordinator: mocks.coordinator
 }));
 
 const config: PrinterConfig = {
@@ -130,6 +197,8 @@ describe("PrinterManager public seam", () => {
     vi.resetModules();
     vi.clearAllMocks();
     mocks.clients.length = 0;
+    mocks.notificationTargets.clear();
+    mocks.notificationThreadIds.clear();
     mocks.state.nextConnection = undefined;
     mocks.state.nextConnectionError = undefined;
     mocks.getPrinter.mockReturnValue(config);
@@ -401,7 +470,7 @@ describe("PrinterManager public seam", () => {
     await printerManager.startPrinter(config.id);
 
     await mocks.clients[0].emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
-    expect(mocks.isPrintThreadAvailable).toHaveBeenCalledWith("thread-recovered");
+    expect(mocks.coordinator.recoverThread).toHaveBeenCalledWith(expect.anything(), "thread-recovered");
     expect(mocks.createPrintThread).not.toHaveBeenCalled();
 
     await mocks.clients[0].emitStatus(status(PrintState.FINISH, 100), status(PrintState.RUNNING));
@@ -409,7 +478,7 @@ describe("PrinterManager public seam", () => {
     expect(mocks.removeActivePrintThread).toHaveBeenCalledWith(config.id);
   });
 
-  it("replaces an unavailable persisted thread and persists the newly created thread", async () => {
+  it("keeps an inaccessible persisted thread as the durable retry target without creating a replacement", async () => {
     mocks.getActivePrintThread.mockReturnValue({ threadId: "thread-stale" });
     mocks.isPrintThreadAvailable.mockResolvedValue(false);
     const { printerManager } = await import("../src/services/printer-manager");
@@ -417,9 +486,9 @@ describe("PrinterManager public seam", () => {
 
     await mocks.clients[0].emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
 
-    expect(mocks.removeActivePrintThread).toHaveBeenCalledWith(config.id);
-    expect(mocks.createPrintThread).toHaveBeenCalledOnce();
-    expect(mocks.setActivePrintThread).toHaveBeenCalledWith(config.id, "thread-new", { project: "Benchy" });
+    expect(mocks.coordinator.recoverThread).toHaveBeenCalledWith(expect.anything(), "thread-stale");
+    expect(mocks.removeActivePrintThread).not.toHaveBeenCalled();
+    expect(mocks.createPrintThread).not.toHaveBeenCalled();
   });
 
   it("replaces a persisted thread when both known project identities differ", async () => {
@@ -490,7 +559,7 @@ describe("PrinterManager public seam", () => {
       status(PrintState.UNKNOWN, 0)
     );
 
-    expect(mocks.isPrintThreadAvailable).toHaveBeenCalledWith("thread-cloud-same");
+    expect(mocks.coordinator.recoverThread).toHaveBeenCalledWith(expect.anything(), "thread-cloud-same");
     expect(mocks.createPrintThread).not.toHaveBeenCalled();
   });
 
@@ -549,7 +618,7 @@ describe("PrinterManager public seam", () => {
       status(PrintState.UNKNOWN, 0)
     );
 
-    expect(mocks.isPrintThreadAvailable).toHaveBeenCalledWith("thread-lan-ambiguous");
+    expect(mocks.coordinator.recoverThread).toHaveBeenCalledWith(expect.anything(), "thread-lan-ambiguous");
     expect(mocks.createPrintThread).not.toHaveBeenCalled();
   });
 
@@ -563,7 +632,7 @@ describe("PrinterManager public seam", () => {
 
     await mocks.clients[0].emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
 
-    expect(mocks.isPrintThreadAvailable).toHaveBeenCalledWith("thread-partial-cloud");
+    expect(mocks.coordinator.recoverThread).toHaveBeenCalledWith(expect.anything(), "thread-partial-cloud");
     expect(mocks.createPrintThread).not.toHaveBeenCalled();
   });
 
@@ -588,4 +657,19 @@ describe("PrinterManager public seam", () => {
       expect(mocks.removeActivePrintThread).toHaveBeenCalledWith(config.id);
     }
   );
+
+  it("restores a persisted stop acknowledgement before routing the first terminal status after restart", async () => {
+    mocks.getActivePrintThread.mockReturnValue({ threadId: "thread-cancelled", project: "Benchy" });
+    mocks.coordinator.restoreCancellationRequested.mockImplementation((_printerId: string, current: Status) => {
+      current.cancellationRequested = true;
+    });
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+
+    await mocks.clients[0].emitStatus(status(PrintState.FAILED, 25), status(PrintState.UNKNOWN, 0));
+
+    expect(mocks.printCancelled).toHaveBeenCalledOnce();
+    expect(mocks.printFailed).not.toHaveBeenCalled();
+    expect(mocks.sendToThread).toHaveBeenCalledWith("thread-cancelled", expect.anything(), []);
+  });
 });

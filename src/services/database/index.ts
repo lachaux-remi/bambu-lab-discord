@@ -224,7 +224,7 @@ const isUnsupportedDirectoryFsyncError = (error: unknown): boolean => {
   return DIRECTORY_FSYNC_UNSUPPORTED_ERROR_CODES.has((error as NodeJS.ErrnoException).code ?? "");
 };
 
-const fsyncDirectory = (path: string): void => {
+export const fsyncDirectory = (path: string): void => {
   let directoryDescriptor: number | undefined;
   let operationError: unknown;
 
@@ -250,7 +250,7 @@ const fsyncDirectory = (path: string): void => {
   }
 };
 
-const writeJsonAtomic = (path: string, value: unknown): void => {
+export const writeJsonAtomic = (path: string, value: unknown): void => {
   const dir = dirname(path);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });

@@ -91,6 +91,44 @@ describe("BambuLabClient MQTT lifecycle", () => {
     );
   });
 
+  it("emits loss only after a ready session and emits ready after pushall on reconnect", async () => {
+    const lost = vi.fn();
+    const ready = vi.fn();
+    client.on("lost", lost);
+    client.on("ready", ready);
+
+    const connection = client.connect();
+    mqttClient.emit("offline");
+    mqttClient.emit("close");
+    expect(lost).not.toHaveBeenCalled();
+
+    mqttClient.emit("connect");
+    await connection;
+    expect(ready).toHaveBeenCalledOnce();
+    mqttClient.emit("offline");
+    mqttClient.emit("close");
+    expect(lost).toHaveBeenCalledOnce();
+
+    mqttClient.emit("connect");
+    expect(ready).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not emit communication loss during an intentional disconnect", async () => {
+    const lost = vi.fn();
+    client.on("lost", lost);
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+    mqttClient.endAsync.mockImplementation(async () => {
+      mqttClient.emit("offline");
+      mqttClient.emit("close");
+    });
+
+    await client.disconnect();
+
+    expect(lost).not.toHaveBeenCalled();
+  });
+
   it("never writes raw MQTT payload values to debug logs", async () => {
     const sensitivePayload = JSON.stringify({
       print: {

@@ -8,13 +8,16 @@ import type { Status } from "../src/types/printer-status";
 import { realMqttPrintCycle } from "./fixtures/real-mqtt-print-cycle";
 
 describe("PrinterStatus", () => {
-  let client: EventEmitter & Pick<BambuLabClient, "emitStatus">;
+  let client: EventEmitter & Pick<BambuLabClient, "emitCancellationRequested" | "emitStatus">;
   let status: PrinterStatus;
 
   beforeEach(() => {
-    client = new EventEmitter() as EventEmitter & Pick<BambuLabClient, "emitStatus">;
+    client = new EventEmitter() as EventEmitter & Pick<BambuLabClient, "emitCancellationRequested" | "emitStatus">;
     client.emitStatus = async (newStatus: Status, oldStatus: Status): Promise<void> => {
       client.emit("status", newStatus, oldStatus);
+    };
+    client.emitCancellationRequested = async (): Promise<void> => {
+      client.emit("cancellationRequested");
     };
     status = new PrinterStatus(client as BambuLabClient);
   });

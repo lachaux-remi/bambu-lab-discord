@@ -7,6 +7,7 @@ import {
   GatewayIntentBits,
   Message
 } from "discord.js";
+import { createHash } from "node:crypto";
 
 import { DISCORD_BOT_TOKEN, FORUM_TAG_DEFINITIONS } from "../../constants";
 import { ForumTag } from "../../enums";
@@ -21,6 +22,80 @@ let client: Client | null = null;
 // Cache des forum channels déjà récupérés
 const forumChannelCache: Map<string, ForumChannel> = new Map();
 const forumMutationQueues: Map<string, Promise<void>> = new Map();
+
+export type DiscordDeliveryResult<T> =
+  | { status: "sent"; value?: T }
+  | { status: "retryable"; value?: T }
+  | { status: "blocked"; value?: T }
+  | { status: "ambiguous"; value?: T };
+
+interface DeliveryBase {
+  eventId: string;
+  embed: EmbedBuilder;
+  files?: DiscordFileAttachment[];
+  tags: string[];
+  reconcileOnly: boolean;
+}
+
+interface PrintThreadDeliveryInput extends DeliveryBase {
+  printKey: string;
+  title: string;
+  forumChannelId: string;
+}
+
+interface ThreadNotificationDeliveryInput extends DeliveryBase {
+  threadId: string;
+  messageId?: string;
+}
+
+const errorDetails = (error: unknown): { code?: number; status?: number } => {
+  if (!error || typeof error !== "object") {
+    return {};
+  }
+  const candidate = error as { code?: unknown; status?: unknown; statusCode?: unknown };
+  return {
+    code: typeof candidate.code === "number" ? candidate.code : undefined,
+    status:
+      typeof candidate.status === "number"
+        ? candidate.status
+        : typeof candidate.statusCode === "number"
+          ? candidate.statusCode
+          : undefined
+  };
+};
+
+const classifyDeliveryError = (error: unknown, afterMutation: boolean): DiscordDeliveryResult<never> => {
+  const { code, status } = errorDetails(error);
+  if (code === 10003 || code === 50001 || code === 50013 || status === 403 || status === 404) {
+    return { status: "blocked" };
+  }
+  if (status === 429) {
+    return { status: "retryable" };
+  }
+  if (afterMutation && (status === undefined || status >= 500)) {
+    return { status: "ambiguous" };
+  }
+  return { status: "retryable" };
+};
+
+const markerFor = (eventId: string): string => `[event:${eventId}]`;
+
+const addEventMarker = (embed: EmbedBuilder, eventId: string): EmbedBuilder => {
+  const marker = markerFor(eventId);
+  const footer = embed.data.footer;
+  if (!footer?.text.includes(marker)) {
+    embed.setFooter({ text: footer?.text ? `${footer.text} ${marker}` : marker, iconURL: footer?.icon_url });
+  }
+  return embed;
+};
+
+const makeAttachments = (files?: DiscordFileAttachment[]): AttachmentBuilder[] =>
+  (files ?? []).flatMap(file => (file.buffer ? [new AttachmentBuilder(file.buffer, { name: file.name })] : []));
+
+const messageHasMarker = (
+  message: { embeds?: readonly { footer?: { text?: string | null } | null }[] },
+  marker: string
+) => message.embeds?.some(embed => embed.footer?.text?.includes(marker)) ?? false;
 
 const normalizeTagName = (n: string) => n.trim().toLowerCase();
 
@@ -266,6 +341,189 @@ export const shutdownDiscordClient = async (): Promise<void> => {
   await discordClient?.destroy();
   forumChannelCache.clear();
   forumMutationQueues.clear();
+};
+
+const applyDeliveryTags = async (
+  thread: { parentId?: string | null; setAppliedTags: (tagIds: string[]) => Promise<unknown> },
+  tagNames: string[]
+): Promise<void> => {
+  if (!thread.parentId || !client) {
+    throw { code: 10003 };
+  }
+  const channel = forumChannelCache.get(thread.parentId) ?? (await client.channels.fetch(thread.parentId));
+  if (!channel || channel.type !== ChannelType.GuildForum) {
+    throw { code: 10003 };
+  }
+  const forum = channel as ForumChannel;
+  forumChannelCache.set(thread.parentId, forum);
+  const tagIds = getTagIdsForNames(forum, tagNames);
+  if (tagIds.length !== new Set(tagNames.map(normalizeTagName)).size) {
+    throw { status: 503 };
+  }
+  await thread.setAppliedTags(tagIds);
+};
+
+const findForumThreadByMarker = async (forum: ForumChannel, marker: string): Promise<string | null> => {
+  const inspect = async (threads: Iterable<{ id: string; fetchStarterMessage: () => Promise<Message | null> }>) => {
+    for (const thread of threads) {
+      const starter = await thread.fetchStarterMessage();
+      if (starter && messageHasMarker(starter, marker)) {
+        return thread.id;
+      }
+    }
+    return null;
+  };
+
+  const active = await forum.threads.fetchActive();
+  const activeMatch = await inspect(active.threads.values());
+  if (activeMatch) {
+    return activeMatch;
+  }
+
+  let before: string | undefined;
+  do {
+    const archived = await forum.threads.fetchArchived({ limit: 100, before });
+    const archivedMatch = await inspect(archived.threads.values());
+    if (archivedMatch) {
+      return archivedMatch;
+    }
+    const entries = Array.from(archived.threads.values());
+    before = entries.at(-1)?.id;
+    if (!archived.hasMore || entries.length === 0) {
+      break;
+    }
+  } while (before);
+  return null;
+};
+
+export const deliverPrintThread = async (
+  input: PrintThreadDeliveryInput
+): Promise<DiscordDeliveryResult<{ threadId: string }>> => {
+  if (!client) {
+    return { status: "retryable" };
+  }
+  addEventMarker(input.embed, input.eventId);
+
+  let forum: ForumChannel;
+  try {
+    const channel = await client.channels.fetch(input.forumChannelId);
+    if (!channel || channel.type !== ChannelType.GuildForum) {
+      return { status: "blocked" };
+    }
+    forum = channel as ForumChannel;
+    forumChannelCache.set(input.forumChannelId, forum);
+  } catch (error) {
+    return classifyDeliveryError(error, false);
+  }
+
+  if (input.reconcileOnly) {
+    let threadId: string | null = null;
+    try {
+      threadId = await findForumThreadByMarker(forum, markerFor(input.eventId));
+      if (!threadId) {
+        return { status: "retryable" };
+      }
+      const thread = await client.channels.fetch(threadId);
+      if (!thread || !thread.isThread()) {
+        return { status: "blocked" };
+      }
+      await applyDeliveryTags(thread, input.tags);
+      return { status: "sent", value: { threadId } };
+    } catch (error) {
+      const result = classifyDeliveryError(error, true);
+      return threadId ? { ...result, value: { threadId } } : result;
+    }
+  }
+
+  try {
+    const appliedTags = getTagIdsForNames(forum, input.tags);
+    if (appliedTags.length !== new Set(input.tags.map(normalizeTagName)).size) {
+      return { status: "retryable" };
+    }
+    const thread = await forum.threads.create({
+      name: input.title,
+      autoArchiveDuration: 10080,
+      appliedTags: appliedTags.length ? appliedTags : undefined,
+      message: { embeds: [input.embed], files: makeAttachments(input.files) }
+    });
+    logger.info({ threadId: thread.id, printKey: input.printKey }, "Created reliable forum post");
+    return { status: "sent", value: { threadId: thread.id } };
+  } catch (error) {
+    return classifyDeliveryError(error, true);
+  }
+};
+
+const findThreadMessageByMarker = async (
+  thread: { messages: { fetch: (options: { limit: number; before?: string }) => Promise<Map<string, Message>> } },
+  marker: string
+): Promise<string | null> => {
+  let before: string | undefined;
+  do {
+    const messages = await thread.messages.fetch({ limit: 100, before });
+    for (const message of messages.values()) {
+      if (messageHasMarker(message, marker)) {
+        return message.id;
+      }
+    }
+    const entries = Array.from(messages.values());
+    before = entries.at(-1)?.id;
+    if (entries.length < 100) {
+      return null;
+    }
+  } while (before);
+  return null;
+};
+
+export const deliverThreadNotification = async (
+  input: ThreadNotificationDeliveryInput
+): Promise<DiscordDeliveryResult<{ messageId: string }>> => {
+  if (!client) {
+    return { status: "retryable" };
+  }
+  addEventMarker(input.embed, input.eventId);
+
+  let thread: Awaited<ReturnType<Client["channels"]["fetch"]>>;
+  try {
+    thread = await client.channels.fetch(input.threadId);
+    if (!thread || !thread.isThread()) {
+      return { status: "blocked" };
+    }
+  } catch (error) {
+    return classifyDeliveryError(error, false);
+  }
+
+  let messageId = input.messageId;
+  if (input.reconcileOnly && !messageId) {
+    try {
+      messageId = (await findThreadMessageByMarker(thread, markerFor(input.eventId))) ?? undefined;
+      if (!messageId) {
+        return { status: "retryable" };
+      }
+    } catch (error) {
+      return classifyDeliveryError(error, false);
+    }
+  } else if (!messageId) {
+    try {
+      const nonce = createHash("sha256").update(input.eventId).digest("hex").slice(0, 25);
+      const message = await thread.send({
+        embeds: [input.embed],
+        files: makeAttachments(input.files),
+        nonce,
+        enforceNonce: true
+      });
+      messageId = message.id;
+    } catch (error) {
+      return classifyDeliveryError(error, true);
+    }
+  }
+
+  try {
+    await applyDeliveryTags(thread, input.tags);
+    return { status: "sent", value: { messageId } };
+  } catch (error) {
+    const result = classifyDeliveryError(error, true);
+    return { ...result, value: { messageId } };
+  }
 };
 
 /**
