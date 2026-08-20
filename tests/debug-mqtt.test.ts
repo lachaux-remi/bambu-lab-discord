@@ -83,6 +83,54 @@ describe("safe MQTT capture", () => {
     expect(lines[0]).not.toContain("  ");
   });
 
+  it("sanitizes residual liveview and print identifiers while preserving multicolor mappings", () => {
+    const payload = {
+      liveview: {
+        ttcode_enc: "LIVESTREAM-TTCODE-SENTINEL",
+        TTCode_Enc: "LIVESTREAM-TTCODE-VARIANT-SENTINEL"
+      },
+      print: {
+        md5: "PRINT-MD5-SENTINEL",
+        MD_5: "PRINT-MD5-VARIANT-SENTINEL",
+        tray_uuid: "TRAY-UUID-SENTINEL",
+        TrayUUID: "TRAY-UUID-VARIANT-SENTINEL",
+        ams: {
+          ams: [{ ams_id: "AMS-SERIAL-SENTINEL" }, { AMSId: "AMS-SERIAL-VARIANT-SENTINEL" }]
+        },
+        ams_mapping: [0, -1, 2, -1],
+        ams_mapping2: [
+          { ams_id: 0, slot_id: 0 },
+          { AMSId: 1, SlotId: 2 }
+        ]
+      }
+    };
+
+    const sanitized = createCaptureSanitizer("fixed-test-salt")(payload);
+    const output = JSON.stringify(sanitized);
+
+    expect(output).not.toContain("SENTINEL");
+    expect(sanitized).toMatchObject({
+      liveview: { ttcode_enc: "[REDACTED]", TTCode_Enc: "[REDACTED]" },
+      print: {
+        md5: expect.stringMatching(/^\[HASH_[a-f\d]{12}\]$/),
+        MD_5: expect.stringMatching(/^\[HASH_[a-f\d]{12}\]$/),
+        tray_uuid: expect.stringMatching(/^\[ID_[a-f\d]{12}\]$/),
+        TrayUUID: expect.stringMatching(/^\[ID_[a-f\d]{12}\]$/),
+        ams: {
+          ams: [
+            { ams_id: expect.stringMatching(/^\[SERIAL_[a-f\d]{12}\]$/) },
+            { AMSId: expect.stringMatching(/^\[SERIAL_[a-f\d]{12}\]$/) }
+          ]
+        },
+        ams_mapping: [0, -1, 2, -1],
+        ams_mapping2: [
+          { ams_id: 0, slot_id: 0 },
+          { AMSId: 1, SlotId: 2 }
+        ]
+      }
+    });
+  });
+
   it("records only safe metadata when JSON parsing fails", () => {
     const rawPayload = Buffer.from('{"access_code":"ACCESS-CODE-SENTINEL",broken');
     const record = createCaptureRecord(

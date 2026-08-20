@@ -41,12 +41,14 @@ export type CaptureRecord = InvalidCaptureRecord | ValidCaptureRecord;
 const REDACTED = "[REDACTED]";
 const REDACTED_URL = "[REDACTED_URL]";
 const CREDENTIAL_KEY =
-  /(^auth$|accesscode|password|passwd|authorization|token|apikey|secret|credential|encryptionkey|cryptkey|privatekey|clientkey|signature)/;
+  /(^auth$|^ttcodeenc$|accesscode|password|passwd|authorization|token|apikey|secret|credential|encryptionkey|cryptkey|privatekey|clientkey|signature)/;
 const IDENTITY_KEY = /(^id$|(id|uuid)$)/;
-const FUNCTIONAL_ID_KEY = /^(sequence|ams|slot|plate|tray|nozzle)(id|uuid)$/;
+const FUNCTIONAL_ID_KEY = /^(sequence|ams|slot|plate|nozzle)(id|uuid)$|^trayid$/;
 const PROJECT_NAME_KEY =
   /(^file$|^path$|(subtask|project|job).*(name|path|file)|gcode(file|path|name)|filename|filepath)/;
 const SERIAL_KEY = /(^sn$|serial)/;
+const AMS_SERIAL_KEY = /^amsid$/;
+const FINGERPRINT_KEY = /^md5$/;
 const IP_KEY = /(^ip$|ipaddress$|ipv[46]$|hostname$|hostaddress$)/;
 const URL = /[a-z][a-z\d+.-]*:\/\//i;
 const SIGNED_URL_FRAGMENT = /(x-amz-(credential|signature)|[?&](signature|credential|token)=)/i;
@@ -71,11 +73,17 @@ export const createCaptureSanitizer = (salt = randomBytes(32).toString("hex")): 
     if (CREDENTIAL_KEY.test(key)) {
       return REDACTED;
     }
+    if (AMS_SERIAL_KEY.test(key) && typeof value === "string") {
+      return pseudonym(salt, "SERIAL", value);
+    }
     if (IDENTITY_KEY.test(key) && !FUNCTIONAL_ID_KEY.test(key)) {
       return pseudonym(salt, "ID", value);
     }
     if (SERIAL_KEY.test(key)) {
       return pseudonym(salt, "SERIAL", value);
+    }
+    if (FINGERPRINT_KEY.test(key)) {
+      return pseudonym(salt, "HASH", value);
     }
     if (IP_KEY.test(key)) {
       return pseudonym(salt, "IP", value);
