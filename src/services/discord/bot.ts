@@ -591,20 +591,6 @@ export const createPrintThread = async (
   }
 };
 
-export const isPrintThreadAvailable = async (threadId: string): Promise<boolean> => {
-  if (!client) {
-    return false;
-  }
-
-  try {
-    const channel = await client.channels.fetch(threadId);
-    return !!channel?.isThread();
-  } catch (error) {
-    logger.warn({ error, threadId }, "Persisted print thread is no longer available");
-    return false;
-  }
-};
-
 /**
  * Envoie un message dans un thread existant
  */
@@ -684,26 +670,6 @@ export const updateThreadTags = async (threadId: string, tagNames: string[]): Pr
     return true;
   } catch (error) {
     logger.error({ error, threadId, tagNames }, "Failed to update thread tags");
-    return false;
-  }
-};
-
-/**
- * Archive un thread
- */
-export const archiveThread = async (threadId: string): Promise<boolean> => {
-  if (!client) {
-    return false;
-  }
-  try {
-    const channel = await client.channels.fetch(threadId);
-    if (!channel || !channel.isThread()) {
-      return false;
-    }
-    await channel.setArchived(true);
-    return true;
-  } catch (error) {
-    logger.error({ error }, "Failed to archive thread");
     return false;
   }
 };

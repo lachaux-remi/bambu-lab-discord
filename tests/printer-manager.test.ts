@@ -59,7 +59,6 @@ const mocks = vi.hoisted(() => {
     setActivePrintThread,
     removeActivePrintThread: vi.fn(),
     createPrintThread,
-    isPrintThreadAvailable: vi.fn(),
     sendToThread,
     updateThreadTags,
     printStarted: vi.fn(),
@@ -142,7 +141,6 @@ vi.mock("../src/services/database", () => ({
 }));
 vi.mock("../src/services/discord/bot", () => ({
   createPrintThread: mocks.createPrintThread,
-  isPrintThreadAvailable: mocks.isPrintThreadAvailable,
   sendToThread: mocks.sendToThread,
   updateThreadTags: mocks.updateThreadTags
 }));
@@ -215,7 +213,6 @@ describe("PrinterManager public seam", () => {
     mocks.setActivePrintThread.mockReturnValue(true);
     mocks.removeActivePrintThread.mockReturnValue(true);
     mocks.createPrintThread.mockResolvedValue("thread-new");
-    mocks.isPrintThreadAvailable.mockResolvedValue(true);
     mocks.sendToThread.mockResolvedValue(true);
     mocks.updateThreadTags.mockResolvedValue(undefined);
     const embedResult = { embed: { title: "notification" }, files: [] };
@@ -537,7 +534,6 @@ describe("PrinterManager public seam", () => {
 
   it("keeps an inaccessible persisted thread as the durable retry target without creating a replacement", async () => {
     mocks.getActivePrintThread.mockReturnValue({ threadId: "thread-stale" });
-    mocks.isPrintThreadAvailable.mockResolvedValue(false);
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
@@ -555,7 +551,6 @@ describe("PrinterManager public seam", () => {
 
     await getClient(0).emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
 
-    expect(mocks.isPrintThreadAvailable).not.toHaveBeenCalled();
     expect(mocks.removeActivePrintThread).toHaveBeenCalledWith(config.id);
     expect(mocks.createPrintThread).toHaveBeenCalledOnce();
     expect(mocks.setActivePrintThread).toHaveBeenCalledWith(config.id, "thread-new", { project: "Benchy" });
@@ -598,7 +593,6 @@ describe("PrinterManager public seam", () => {
       status(PrintState.UNKNOWN, 0)
     );
 
-    expect(mocks.isPrintThreadAvailable).not.toHaveBeenCalled();
     expect(mocks.removeActivePrintThread).toHaveBeenCalledWith(config.id);
     expect(mocks.createPrintThread).toHaveBeenCalledOnce();
   });
@@ -633,7 +627,6 @@ describe("PrinterManager public seam", () => {
 
     await getClient(0).emitStatus(status(PrintState.RUNNING, 25, { taskId, plate }), status(PrintState.UNKNOWN, 0));
 
-    expect(mocks.isPrintThreadAvailable).not.toHaveBeenCalled();
     expect(mocks.createPrintThread).toHaveBeenCalledOnce();
   });
 
@@ -654,7 +647,6 @@ describe("PrinterManager public seam", () => {
       status(PrintState.UNKNOWN, 0)
     );
 
-    expect(mocks.isPrintThreadAvailable).not.toHaveBeenCalled();
     expect(mocks.createPrintThread).toHaveBeenCalledOnce();
   });
 

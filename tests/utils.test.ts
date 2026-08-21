@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { PrintState } from "../src/enums";
 import { getDiscordTagsForStatus, getInitialDiscordTags } from "../src/utils/discord-tags.util";
 import { normalizePrintIdentity } from "../src/utils/print-identity.util";
-import { getFilamentCount, isMulticolorPrint, isMulticolorPrintV2 } from "../src/utils/print.util";
+import { isMulticolorPrint } from "../src/utils/print.util";
 import { formatMinuteToBestDisplay, timeDiffInMinutes } from "../src/utils/time.util";
 
 describe("print identity utilities", () => {
@@ -23,29 +23,13 @@ describe("print identity utilities", () => {
 
 describe("print utilities", () => {
   it.each([
-    [undefined, false, 0],
-    [[], false, 0],
-    [[-1, -1], false, 0],
-    [[0, -1], false, 1],
-    [[0, 3], true, 2]
-  ])("handles AMS mapping %j", (mapping, multicolor, count) => {
+    [undefined, false],
+    [[], false],
+    [[-1, -1], false],
+    [[0, -1], false],
+    [[0, 3], true]
+  ])("handles AMS mapping %j", (mapping, multicolor) => {
     expect(isMulticolorPrint(mapping)).toBe(multicolor);
-    expect(getFilamentCount(mapping)).toBe(count);
-  });
-
-  it("ignores unused AMS v2 slots", () => {
-    expect(
-      isMulticolorPrintV2([
-        { ams_id: 0, slot_id: 1 },
-        { ams_id: 255, slot_id: 255 }
-      ])
-    ).toBe(false);
-    expect(
-      isMulticolorPrintV2([
-        { ams_id: 0, slot_id: 1 },
-        { ams_id: 1, slot_id: 2 }
-      ])
-    ).toBe(true);
   });
 });
 
