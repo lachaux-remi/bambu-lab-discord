@@ -1,3 +1,4 @@
+import { SCREENSHOT_ATTACHMENT_NAME, SCREENSHOT_ATTACHMENT_URL } from "../../../constants";
 import type { EmbedResult } from "../../../types/discord";
 import type { Status } from "../../../types/printer-status";
 import { createBaseEmbed } from "./base";
@@ -10,8 +11,8 @@ export const printFailed = async (status: Status, screenshotFn: () => Promise<Bu
     .setDescription(`L'imprimante a échoué à imprimer **${status.project}**.`);
 
   if (screenshot) {
-    embed.setImage("attachment://screenshot.jpg");
-    return { embed, files: [{ name: "screenshot.jpg", buffer: screenshot }] };
+    embed.setImage(SCREENSHOT_ATTACHMENT_URL);
+    return { embed, files: [{ name: SCREENSHOT_ATTACHMENT_NAME, buffer: screenshot }] };
   }
 
   return { embed };

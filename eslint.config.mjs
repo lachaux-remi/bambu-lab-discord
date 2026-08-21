@@ -4,8 +4,8 @@ import prettierPlugin from "eslint-plugin-prettier";
 import tsEslint from "typescript-eslint";
 
 export default tsEslint.config(eslint.configs.recommended, ...tsEslint.configs.recommended, {
-  files: [ "**/*.ts", "**/*.json" ],
-  ignores: [ "**/dist/**" ],
+  files: ["**/*.ts"],
+  ignores: ["**/dist/**"],
   languageOptions: {
     parser: tsParser
   },
@@ -17,7 +17,7 @@ export default tsEslint.config(eslint.configs.recommended, ...tsEslint.configs.r
     "no-console": [
       "error",
       {
-        allow: [ "warn", "error" ]
+        allow: ["warn", "error"]
       }
     ],
     "no-debugger": "error",

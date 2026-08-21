@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 
+import { SCREENSHOT_ATTACHMENT_NAME, SCREENSHOT_ATTACHMENT_URL } from "../../constants";
 import { ForumTag, PrintState } from "../../enums";
 import { getLogger } from "../../libs/logger";
 import type { EmbedResult } from "../../types/discord";
@@ -706,8 +707,10 @@ export class PrintNotificationCoordinator {
         const screenshot = await input.capture();
         const currentSize = event.attachments.reduce((total, attachment) => total + attachment.size, 0);
         if (screenshot && currentSize + screenshot.length <= MAX_ATTACHMENTS_SIZE) {
-          event.attachments.push(this.persistAttachment(id, event.attachments.length, "screenshot.jpg", screenshot));
-          event.embed = { ...event.embed, image: { url: "attachment://screenshot.jpg" } };
+          event.attachments.push(
+            this.persistAttachment(id, event.attachments.length, SCREENSHOT_ATTACHMENT_NAME, screenshot)
+          );
+          event.embed = { ...event.embed, image: { url: SCREENSHOT_ATTACHMENT_URL } };
         } else if (screenshot) {
           logger.warn(
             { eventId: id, totalSize: currentSize + screenshot.length, limit: MAX_ATTACHMENTS_SIZE },

@@ -1,5 +1,6 @@
 import { createServer } from "node:net";
 
+import { BAMBU_USERNAME } from "../constants";
 import { LightMode, LightNode, MessageCommand, PrintState } from "../enums";
 import { getLogger } from "../libs/logger";
 import type { PrintMessage } from "../types/printer-messages";
@@ -111,7 +112,7 @@ const main = async (): Promise<void> => {
   const { Aedes } = await import("aedes");
   const broker = await Aedes.createBroker({
     authenticate: (_client, username, password, done) => {
-      done(null, username === "bblp" && password?.toString() === accessCode);
+      done(null, username === BAMBU_USERNAME && password?.toString() === accessCode);
     }
   });
   const server = createServer(broker.handle);

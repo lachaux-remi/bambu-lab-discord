@@ -56,6 +56,12 @@ export const MIN_NETWORK_PORT = 1;
 export const MAX_NETWORK_PORT = 65_535;
 export const DEFAULT_MQTT_PORT = 8883;
 export const DEFAULT_RTC_PORT = 6000;
+export const BAMBU_USERNAME = "bblp";
+
+export const PROJECT_IMAGE_ATTACHMENT_NAME = "project.png";
+export const PROJECT_IMAGE_ATTACHMENT_URL = `attachment://${PROJECT_IMAGE_ATTACHMENT_NAME}`;
+export const SCREENSHOT_ATTACHMENT_NAME = "screenshot.jpg";
+export const SCREENSHOT_ATTACHMENT_URL = `attachment://${SCREENSHOT_ATTACHMENT_NAME}`;
 
 // Use plaintext MQTT only for a local development broker. Production defaults to MQTT over TLS.
 export const MQTT_PROTOCOL = process.env.MQTT_PROTOCOL === "mqtt" ? "mqtt" : "mqtts";

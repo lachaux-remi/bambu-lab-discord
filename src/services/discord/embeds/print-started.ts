@@ -1,3 +1,4 @@
+import { PROJECT_IMAGE_ATTACHMENT_NAME, PROJECT_IMAGE_ATTACHMENT_URL } from "../../../constants";
 import type { EmbedResult } from "../../../types/discord";
 import type { Status } from "../../../types/printer-status";
 import { createBaseEmbed } from "./base";
@@ -8,8 +9,8 @@ export const printStarted = (status: Status): EmbedResult => {
     .setDescription(`L'imprimante se prépare pour imprimer **${status.project}**\n${status.model}`);
 
   if (status.projectImage) {
-    embed.setImage("attachment://project.png");
-    return { embed, files: [{ name: "project.png", buffer: status.projectImage }] };
+    embed.setImage(PROJECT_IMAGE_ATTACHMENT_URL);
+    return { embed, files: [{ name: PROJECT_IMAGE_ATTACHMENT_NAME, buffer: status.projectImage }] };
   }
 
   return { embed };

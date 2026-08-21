@@ -14,6 +14,7 @@ import type { WriteStream } from "node:fs";
 import { isIP } from "node:net";
 import { join } from "node:path";
 
+import { BAMBU_USERNAME } from "../constants";
 import { getBambuTlsOptions } from "../libs/bambu-tls";
 import { getLogger } from "../libs/logger";
 
@@ -212,7 +213,7 @@ export const runMqttCapture = async (): Promise<void> => {
   const topicReport = `device/${printerSerial}/report`;
   const topicRequest = `device/${printerSerial}/request`;
   const client = connect(`mqtts://${printerIp}:${printerPort}`, {
-    username: "bblp",
+    username: BAMBU_USERNAME,
     password: accessCode,
     reconnectPeriod: 5_000,
     ...getBambuTlsOptions(printerSerial)
