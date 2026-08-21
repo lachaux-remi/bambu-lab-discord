@@ -45,7 +45,7 @@ describe("PrinterStatus", () => {
     });
 
     expect(listener).toHaveBeenCalledOnce();
-    const [newStatus, oldStatus] = listener.mock.calls[0];
+    const [newStatus, oldStatus] = listener.mock.calls[0]!;
     expect(oldStatus).toEqual({});
     expect(newStatus).toMatchObject({
       state: PrintState.PREPARE,
@@ -82,7 +82,7 @@ describe("PrinterStatus", () => {
       url: "https://example.com/project.3mf",
       plate: "0"
     });
-    expect(listener.mock.calls[0][0].projectImage).toBe(image);
+    expect(listener.mock.calls[0]?.[0].projectImage).toBe(image);
   });
 
   it("does not extract a project image when the plate is absent", async () => {
@@ -119,7 +119,7 @@ describe("PrinterStatus", () => {
     });
 
     expect(listener).toHaveBeenCalledTimes(2);
-    expect(listener.mock.calls[1][0]).toMatchObject({
+    expect(listener.mock.calls[1]?.[0]).toMatchObject({
       state: PrintState.PAUSE,
       project: "benchy",
       subtaskId: "cloud-subtask",
@@ -131,7 +131,7 @@ describe("PrinterStatus", () => {
       progressPercent: 10,
       remainingTime: 92
     });
-    expect(listener.mock.calls[1][1]).toMatchObject({
+    expect(listener.mock.calls[1]?.[1]).toMatchObject({
       state: PrintState.RUNNING,
       currentLayer: 4,
       progressPercent: 8
@@ -206,7 +206,8 @@ describe("PrinterStatus", () => {
       gcode_state: PrintState.RUNNING
     });
 
-    const [newStatus] = listener.mock.calls[1];
+    expect(listener).toHaveBeenCalledTimes(2);
+    const [newStatus] = listener.mock.calls[1]!;
     expect(newStatus.subtaskId).toBeUndefined();
     expect(newStatus.taskId).toBeUndefined();
     expect(newStatus.gcodeFile).toBeUndefined();
@@ -236,7 +237,7 @@ describe("PrinterStatus", () => {
       state: PrintState.RUNNING,
       cancellationRequested: false
     });
-    expect(emittedStatuses[2].startedAt).toBeGreaterThan(emittedStatuses[1].startedAt!);
+    expect(emittedStatuses[2]!.startedAt).toBeGreaterThan(emittedStatuses[1]!.startedAt!);
   });
 
   it("does not emit for unknown commands or non-critical remaining-time updates", async () => {

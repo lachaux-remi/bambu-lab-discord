@@ -112,7 +112,7 @@ describe("printer administration commands", () => {
     await handlePrinterStatus(request);
 
     expect(request.reply).toHaveBeenCalledWith({ embeds: [expect.anything()], flags: MessageFlags.Ephemeral });
-    const embed = request.reply.mock.calls[0][0].embeds[0].toJSON();
+    const embed = request.reply.mock.calls[0]![0].embeds[0]!.toJSON();
     expect(embed.fields).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "Gestionnaire", value: "Démarré" }),
@@ -142,7 +142,7 @@ describe("printer administration commands", () => {
       embeds: [expect.anything(), expect.anything()],
       flags: MessageFlags.Ephemeral
     });
-    const embeds = request.reply.mock.calls[0][0].embeds.map((embed: { toJSON: () => { fields?: unknown[] } }) =>
+    const embeds = request.reply.mock.calls[0]![0].embeds.map((embed: { toJSON: () => { fields?: unknown[] } }) =>
       embed.toJSON()
     );
     expect(embeds.map((embed: { fields?: unknown[] }) => embed.fields?.length)).toEqual([25, 1]);

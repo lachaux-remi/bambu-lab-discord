@@ -139,8 +139,8 @@ describe.sequential("configuration persistence", () => {
       "fsync",
       "close"
     ]);
-    expect(fsTracking.events[0].path).toMatch(/printers\.json\..+\.tmp$/);
-    expect(fsTracking.events[3].path).toBe(join(workingDirectory, "config", "printers.json"));
+    expect(fsTracking.events[0]?.path).toMatch(/printers\.json\..+\.tmp$/);
+    expect(fsTracking.events[3]?.path).toBe(join(workingDirectory, "config", "printers.json"));
     expect(fsTracking.events.slice(4).map(event => event.path)).toEqual([
       join(workingDirectory, "config"),
       join(workingDirectory, "config"),
@@ -407,7 +407,7 @@ describe.sequential("configuration persistence", () => {
     writePlaintextPrinterConfig();
     process.env.CONFIG_ENCRYPTION_KEY = randomBytes(32).toString("base64");
 
-    expect(database.loadConfig().printers["p1s-bureau"].accessCode).toBe("secret");
+    expect(database.loadConfig().printers["p1s-bureau"]?.accessCode).toBe("secret");
 
     const persisted = JSON.parse(readFileSync(join(workingDirectory, "config", "printers.json"), "utf8"));
     expect(persisted.printers["p1s-bureau"].accessCode).toMatch(/^enc:v1:/);

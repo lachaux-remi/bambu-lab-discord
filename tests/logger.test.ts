@@ -11,6 +11,14 @@ vi.mock("pino", async importOriginal => {
   };
 });
 
+const getPinoOptions = (): LoggerOptions => {
+  const options = pinoMock.mock.calls[0]?.[0];
+  if (!options || typeof options !== "object") {
+    throw new Error("Expected pino to be initialized with logger options");
+  }
+  return options as LoggerOptions;
+};
+
 describe("logger", () => {
   afterEach(() => {
     delete process.env.LOG_FORMAT;
@@ -23,10 +31,10 @@ describe("logger", () => {
     childMock.mockReturnValue({});
 
     const { getLogger } = await import("../src/libs/logger");
-    const options = pinoMock.mock.calls[0][0] as LoggerOptions;
+    const options = getPinoOptions();
     const error = new TypeError("download failed");
 
-    expect(options.serializers?.error(error)).toMatchObject({
+    expect(options.serializers?.error?.(error)).toMatchObject({
       type: "TypeError",
       message: "download failed",
       stack: expect.stringContaining("TypeError: download failed")
@@ -40,7 +48,7 @@ describe("logger", () => {
     childMock.mockReturnValue({});
     const { default: actualPino } = await vi.importActual<{ default: typeof import("pino") }>("pino");
     await import("../src/libs/logger");
-    const options = pinoMock.mock.calls[0][0] as LoggerOptions;
+    const options = getPinoOptions();
     let output = "";
     const destination = new Writable({
       write(chunk, _encoding, callback) {
@@ -73,7 +81,7 @@ describe("logger", () => {
 
     await import("../src/libs/logger");
 
-    const options = pinoMock.mock.calls[0][0] as LoggerOptions;
+    const options = getPinoOptions();
     expect(options.transport).toMatchObject({ target: "pino-pretty" });
   });
 
@@ -83,7 +91,7 @@ describe("logger", () => {
 
     await import("../src/libs/logger");
 
-    const options = pinoMock.mock.calls[0][0] as LoggerOptions;
+    const options = getPinoOptions();
     expect(options.transport).toBeUndefined();
   });
 });

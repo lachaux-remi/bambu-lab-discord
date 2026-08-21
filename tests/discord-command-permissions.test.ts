@@ -25,6 +25,14 @@ vi.mock("../src/services/discord/commands/printer-remove", () => ({ handlePrinte
 vi.mock("../src/services/discord/commands/printer-screenshot", () => ({ handlePrinterScreenshot: seams.screenshot }));
 vi.mock("../src/services/discord/commands/printer-status", () => ({ handlePrinterStatus: seams.status }));
 
+const getInstalledHandler = (index: number): ((interaction: unknown) => void) => {
+  const handler = seams.client.on.mock.calls[index]?.[1];
+  if (typeof handler !== "function") {
+    throw new Error(`Expected Discord interaction handler at index ${index}`);
+  }
+  return handler as (interaction: unknown) => void;
+};
+
 describe("printer slash command permissions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -33,13 +41,13 @@ describe("printer slash command permissions", () => {
   const installHandler = async () => {
     const { setupCommandHandlers } = await import("../src/services/discord/commands");
     setupCommandHandlers();
-    return seams.client.on.mock.calls[0][1] as (interaction: unknown) => void;
+    return getInstalledHandler(0);
   };
 
   const installAutocompleteHandler = async () => {
     const { setupCommandHandlers } = await import("../src/services/discord/commands");
     setupCommandHandlers();
-    return seams.client.on.mock.calls[1][1] as (interaction: unknown) => void;
+    return getInstalledHandler(1);
   };
 
   const interaction = (permissions: PermissionsBitField, subcommand = "list") => ({
