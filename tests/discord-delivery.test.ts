@@ -62,6 +62,35 @@ describe.sequential("reliable Discord delivery", () => {
     expect(setAppliedTags).toHaveBeenCalledWith(["tag-1"]);
   });
 
+  it.each([
+    ["a printer name matching a canonical tag", ["En cours", "Monocolor", "En cours"]],
+    ["mixed-case duplicate names", ["En cours", "Monocolor", " en COURS "]]
+  ])("deduplicates %s before applying delivery tags", async (_description, tags) => {
+    const send = vi.fn().mockResolvedValue({ id: "message-1" });
+    const setAppliedTags = vi.fn().mockResolvedValue(undefined);
+    const thread = { isThread: () => true, parentId: "forum-1", send, setAppliedTags };
+    const forum = {
+      type: 15,
+      availableTags: [
+        { id: "running", name: "En cours" },
+        { id: "single-color", name: "Monocolor" }
+      ]
+    };
+    discord.fetch.mockImplementation((id: string) => Promise.resolve(id === "thread-1" ? thread : forum));
+    const { deliverThreadNotification } = await import("../src/services/discord/bot");
+
+    await expect(
+      deliverThreadNotification({
+        eventId: "duplicate-tags",
+        threadId: "thread-1",
+        embed: new EmbedBuilder(),
+        tags,
+        reconcileOnly: false
+      })
+    ).resolves.toEqual({ status: "sent", value: { messageId: "message-1" } });
+    expect(setAppliedTags).toHaveBeenCalledWith(["running", "single-color"]);
+  });
+
   it("classifies missing channels as blocked and uncertain creates as ambiguous", async () => {
     const { deliverPrintThread, deliverThreadNotification } = await import("../src/services/discord/bot");
     discord.fetch.mockRejectedValueOnce({ code: 10003 });

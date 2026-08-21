@@ -106,16 +106,237 @@ const writeState = (state: OutboxState): void => {
   writeJsonAtomic(OUTBOX_PATH, state);
 };
 
+const EVENT_KINDS = new Set<string>(["create", "message", "mqtt-lost", "mqtt-recovered"]);
+const EVENT_STATUSES = new Set<string>(["acquiring", "pending", "ambiguous", "failed", "superseded"]);
+const PRINT_STATES = new Set<string>(Object.values(PrintState));
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const hasOnlyKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean =>
+  Object.keys(value).every(key => keys.includes(key));
+
+const isOptional = (value: Record<string, unknown>, key: string, predicate: (candidate: unknown) => boolean): boolean =>
+  !(key in value) || predicate(value[key]);
+
+const isString = (value: unknown): value is string => typeof value === "string";
+const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
+const isNonNegativeInteger = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0;
+
+const isEmbedMedia = (value: unknown, allowProxyUrl: boolean): boolean =>
+  isRecord(value) &&
+  hasOnlyKeys(value, ["url", ...(allowProxyUrl ? ["proxy_url"] : []), "height", "width"]) &&
+  (allowProxyUrl ? isString(value.url) : isOptional(value, "url", isString)) &&
+  (!allowProxyUrl || isOptional(value, "proxy_url", isString)) &&
+  isOptional(value, "height", isNonNegativeInteger) &&
+  isOptional(value, "width", isNonNegativeInteger);
+
+const isApiEmbed = (value: unknown): value is APIEmbed => {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, [
+      "title",
+      "type",
+      "description",
+      "url",
+      "timestamp",
+      "color",
+      "footer",
+      "image",
+      "thumbnail",
+      "video",
+      "provider",
+      "author",
+      "fields"
+    ]) ||
+    !["title", "type", "description", "url", "timestamp"].every(key => isOptional(value, key, isString)) ||
+    !isOptional(value, "color", isNonNegativeInteger) ||
+    !isOptional(
+      value,
+      "footer",
+      footer =>
+        isRecord(footer) &&
+        hasOnlyKeys(footer, ["text", "icon_url", "proxy_icon_url"]) &&
+        isString(footer.text) &&
+        isOptional(footer, "icon_url", isString) &&
+        isOptional(footer, "proxy_icon_url", isString)
+    ) ||
+    !isOptional(value, "image", image => isEmbedMedia(image, true)) ||
+    !isOptional(value, "thumbnail", thumbnail => isEmbedMedia(thumbnail, true)) ||
+    !isOptional(value, "video", video => isEmbedMedia(video, false)) ||
+    !isOptional(
+      value,
+      "provider",
+      provider =>
+        isRecord(provider) &&
+        hasOnlyKeys(provider, ["name", "url"]) &&
+        isOptional(provider, "name", isString) &&
+        isOptional(provider, "url", isString)
+    ) ||
+    !isOptional(
+      value,
+      "author",
+      author =>
+        isRecord(author) &&
+        hasOnlyKeys(author, ["name", "url", "icon_url", "proxy_icon_url"]) &&
+        isString(author.name) &&
+        isOptional(author, "url", isString) &&
+        isOptional(author, "icon_url", isString) &&
+        isOptional(author, "proxy_icon_url", isString)
+    )
+  ) {
+    return false;
+  }
+  return isOptional(
+    value,
+    "fields",
+    fields =>
+      Array.isArray(fields) &&
+      fields.every(
+        field =>
+          isRecord(field) &&
+          hasOnlyKeys(field, ["name", "value", "inline"]) &&
+          isString(field.name) &&
+          isString(field.value) &&
+          isOptional(field, "inline", isBoolean)
+      )
+  );
+};
+
+const isPersistedAttachment = (value: unknown): value is PersistedAttachment =>
+  isRecord(value) &&
+  hasOnlyKeys(value, ["name", "file", "size"]) &&
+  isString(value.name) &&
+  isString(value.file) &&
+  isNonNegativeInteger(value.size);
+
+const isPrintIdentity = (value: unknown): value is PrintIdentity =>
+  isRecord(value) &&
+  hasOnlyKeys(value, ["subtaskId", "taskId", "gcodeFile", "plate", "project"]) &&
+  ["subtaskId", "taskId", "gcodeFile", "plate", "project"].every(key => isOptional(value, key, isString));
+
+const isFailureReason = (value: unknown): value is DiscordFailureReason =>
+  isRecord(value) &&
+  hasOnlyKeys(value, ["category", "code", "status"]) &&
+  isString(value.category) &&
+  isOptional(value, "code", isNonNegativeInteger) &&
+  isOptional(value, "status", isNonNegativeInteger);
+
+const isNotificationEvent = (value: unknown): value is NotificationEvent => {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const kind = value.kind;
+  const status = value.status;
+  return (
+    hasOnlyKeys(value, [
+      "id",
+      "printerId",
+      "printKey",
+      "kind",
+      "status",
+      "createdAt",
+      "nextAttemptAt",
+      "attempts",
+      "ambiguityChecks",
+      "embed",
+      "attachments",
+      "tags",
+      "forumChannelId",
+      "title",
+      "terminal",
+      "threadId",
+      "messageId",
+      "identity",
+      "lastFailure",
+      "reconcileOnlyAfterRecovery"
+    ]) &&
+    isString(value.id) &&
+    isString(value.printerId) &&
+    isString(value.printKey) &&
+    isString(kind) &&
+    EVENT_KINDS.has(kind) &&
+    isString(status) &&
+    EVENT_STATUSES.has(status) &&
+    isNonNegativeInteger(value.createdAt) &&
+    isNonNegativeInteger(value.nextAttemptAt) &&
+    isNonNegativeInteger(value.attempts) &&
+    isNonNegativeInteger(value.ambiguityChecks) &&
+    isApiEmbed(value.embed) &&
+    Array.isArray(value.attachments) &&
+    value.attachments.every(isPersistedAttachment) &&
+    Array.isArray(value.tags) &&
+    value.tags.every(isString) &&
+    isOptional(value, "forumChannelId", isString) &&
+    isOptional(value, "title", isString) &&
+    isOptional(value, "terminal", isBoolean) &&
+    isOptional(value, "threadId", isString) &&
+    isOptional(value, "messageId", isString) &&
+    isOptional(value, "identity", isPrintIdentity) &&
+    isOptional(value, "lastFailure", isFailureReason) &&
+    isOptional(value, "reconcileOnlyAfterRecovery", isBoolean) &&
+    (kind !== "create" || (isString(value.forumChannelId) && isString(value.title))) &&
+    (status !== "failed" || isFailureReason(value.lastFailure))
+  );
+};
+
+const isMqttState = (value: unknown): value is NonNullable<ActivePrintState["mqtt"]> =>
+  isRecord(value) &&
+  hasOnlyKeys(value, ["lostAt", "ready", "alertEventId", "alertDelivered", "firstStatus"]) &&
+  isNonNegativeInteger(value.lostAt) &&
+  isBoolean(value.ready) &&
+  isOptional(value, "alertEventId", isString) &&
+  isBoolean(value.alertDelivered) &&
+  isOptional(
+    value,
+    "firstStatus",
+    firstStatus =>
+      isRecord(firstStatus) &&
+      hasOnlyKeys(firstStatus, ["state", "isMulticolor"]) &&
+      isString(firstStatus.state) &&
+      PRINT_STATES.has(firstStatus.state) &&
+      isBoolean(firstStatus.isMulticolor)
+  );
+
+const isActivePrintState = (value: unknown): value is ActivePrintState =>
+  isRecord(value) &&
+  hasOnlyKeys(value, [
+    "printKey",
+    "printerName",
+    "state",
+    "isMulticolor",
+    "cancellationRequested",
+    "threadId",
+    "mqtt"
+  ]) &&
+  isString(value.printKey) &&
+  isString(value.printerName) &&
+  isString(value.state) &&
+  PRINT_STATES.has(value.state) &&
+  isBoolean(value.isMulticolor) &&
+  isBoolean(value.cancellationRequested) &&
+  isOptional(value, "threadId", isString) &&
+  isOptional(value, "mqtt", isMqttState);
+
+const isOutboxState = (value: unknown): value is OutboxState =>
+  isRecord(value) &&
+  hasOnlyKeys(value, ["version", "events", "activePrints"]) &&
+  value.version === 2 &&
+  Array.isArray(value.events) &&
+  value.events.every(isNotificationEvent) &&
+  isRecord(value.activePrints) &&
+  Object.values(value.activePrints).every(isActivePrintState);
+
 const loadState = (): OutboxState => {
   if (!existsSync(OUTBOX_PATH)) {
     return emptyState();
   }
   try {
-    const value = JSON.parse(readFileSync(OUTBOX_PATH, "utf8")) as Partial<OutboxState>;
-    if (value.version !== 2 || !Array.isArray(value.events) || !value.activePrints) {
+    const value: unknown = JSON.parse(readFileSync(OUTBOX_PATH, "utf8"));
+    if (!isOutboxState(value)) {
       throw new Error("Unsupported notification outbox schema");
     }
-    return value as OutboxState;
+    return value;
   } catch (error) {
     throw new Error(`Failed to load notification outbox from ${OUTBOX_PATH}`, { cause: error });
   }

@@ -143,8 +143,14 @@ const getTagIdsForNames = (forum: ForumChannel, names: string[]): string[] => {
   const available = forum.availableTags ?? [];
   const map = new Map(available.map(t => [normalizeTagName(t.name ?? ""), t.id]));
   const ids: string[] = [];
+  const requested = new Set<string>();
   for (const n of names) {
-    const id = map.get(normalizeTagName(n));
+    const normalizedName = normalizeTagName(n);
+    if (requested.has(normalizedName)) {
+      continue;
+    }
+    requested.add(normalizedName);
+    const id = map.get(normalizedName);
     if (id) {
       ids.push(id);
     } else {

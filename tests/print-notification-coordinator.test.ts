@@ -61,6 +61,68 @@ const context = (state: PrintState = PrintState.RUNNING) => ({
 
 const readOutbox = () => JSON.parse(readFileSync(join(workingDirectory, "config", "notification-outbox.json"), "utf8"));
 
+type JsonRecord = Record<string, unknown>;
+
+const validPersistedOutbox = (): JsonRecord => ({
+  version: 2,
+  events: [
+    {
+      id: "event-1",
+      printerId: "printer-1",
+      printKey: "printer-1:model:1",
+      kind: "message",
+      status: "pending",
+      createdAt: 900,
+      nextAttemptAt: 1_000,
+      attempts: 1,
+      ambiguityChecks: 0,
+      embed: {
+        title: "Progress",
+        description: "Printing",
+        color: 0x24a543,
+        timestamp: "2026-08-21T00:00:00.000Z",
+        footer: { text: "Bambu Lab Discord", icon_url: "https://example.com/footer.png" },
+        image: { url: "attachment://screenshot.jpg" },
+        thumbnail: { url: "https://example.com/thumbnail.png" },
+        fields: [{ name: "Progress", value: "10%", inline: true }]
+      },
+      attachments: [{ name: "screenshot.jpg", file: "event-1-0-screenshot.jpg", size: 8 }],
+      tags: [ForumTag.IN_PROGRESS, ForumTag.MONOCOLOR, "Workshop P1S"],
+      terminal: false,
+      threadId: "thread-1",
+      messageId: "message-previous",
+      lastFailure: { category: "discord-rate-limited", code: 20_028, status: 429 }
+    }
+  ],
+  activePrints: {
+    "printer-1": {
+      printKey: "printer-1:model:1",
+      printerName: "Workshop P1S",
+      state: PrintState.RUNNING,
+      isMulticolor: false,
+      cancellationRequested: true,
+      threadId: "thread-1",
+      mqtt: {
+        lostAt: 800,
+        ready: true,
+        alertEventId: "event-1",
+        alertDelivered: false,
+        firstStatus: { state: PrintState.PAUSE, isMulticolor: false }
+      }
+    }
+  }
+});
+
+const persistedEvents = (snapshot: JsonRecord): JsonRecord[] => snapshot.events as JsonRecord[];
+const persistedActivePrint = (snapshot: JsonRecord): JsonRecord =>
+  (snapshot.activePrints as JsonRecord)["printer-1"] as JsonRecord;
+const persistedMqtt = (snapshot: JsonRecord): JsonRecord => persistedActivePrint(snapshot).mqtt as JsonRecord;
+
+const writeOutbox = (snapshot: JsonRecord): void => {
+  mkdirSync(join(workingDirectory, "config"), { recursive: true });
+  writeFileSync(join(workingDirectory, "config", "notification-outbox.json"), JSON.stringify(snapshot));
+};
+
 const flushCurrentTimers = async (): Promise<void> => {
   for (let index = 0; index < 4; index += 1) {
     await Promise.resolve();
@@ -84,6 +146,155 @@ describe.sequential("PrintNotificationCoordinator", () => {
     process.chdir(originalWorkingDirectory);
     rmSync(workingDirectory, { recursive: true, force: true });
     vi.useRealTimers();
+  });
+
+  it.each([
+    ["active prints as an array", (snapshot: JsonRecord) => (snapshot.activePrints = [])],
+    ["a missing event embed", (snapshot: JsonRecord) => delete persistedEvents(snapshot)[0].embed],
+    ["an unknown event kind", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].kind = "other")],
+    ["an unknown event status", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].status = "sent")],
+    [
+      "an attachment with a negative size",
+      (snapshot: JsonRecord) => {
+        (persistedEvents(snapshot)[0].attachments as JsonRecord[])[0].size = -1;
+      }
+    ],
+    ["a non-array attachment collection", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].attachments = {})],
+    ["a fractional event timestamp", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].createdAt = 1.5)],
+    ["a negative attempt counter", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].attempts = -1)],
+    [
+      "a malformed embed footer",
+      (snapshot: JsonRecord) => {
+        (persistedEvents(snapshot)[0].embed as JsonRecord).footer = [];
+      }
+    ],
+    ["a non-string tag", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].tags = [ForumTag.IN_PROGRESS, 1])],
+    ["an unknown active print state", (snapshot: JsonRecord) => (persistedActivePrint(snapshot).state = "PRINTING")],
+    ["a malformed MQTT ready flag", (snapshot: JsonRecord) => (persistedMqtt(snapshot).ready = "yes")],
+    [
+      "an invalid MQTT recovery state",
+      (snapshot: JsonRecord) => {
+        (persistedMqtt(snapshot).firstStatus as JsonRecord).state = "PRINTING";
+      }
+    ],
+    ["a malformed print identity", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].identity = { plate: 1 })],
+    [
+      "a malformed failure reason",
+      (snapshot: JsonRecord) => {
+        persistedEvents(snapshot)[0].lastFailure = { category: "discord-transient", status: "503" };
+      }
+    ],
+    [
+      "a create event without its forum target",
+      (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].kind = "create")
+    ],
+    [
+      "a failed event without a failure reason",
+      (snapshot: JsonRecord) => {
+        persistedEvents(snapshot)[0].status = "failed";
+        delete persistedEvents(snapshot)[0].lastFailure;
+      }
+    ]
+  ])("rejects a version-2 snapshot with %s", async (_description, corrupt) => {
+    const snapshot = validPersistedOutbox();
+    corrupt(snapshot);
+    writeOutbox(snapshot);
+    const { PrintNotificationCoordinator } =
+      await import("../src/services/printer-manager/print-notification-coordinator");
+
+    expect(() => new PrintNotificationCoordinator().start()).toThrowError(
+      `Failed to load notification outbox from ${join(workingDirectory, "config", "notification-outbox.json")}`
+    );
+  });
+
+  it("restarts from a valid pending event with persisted embeds, attachments, retries, and active print state", async () => {
+    const snapshot = validPersistedOutbox();
+    delete persistedActivePrint(snapshot).mqtt;
+    writeOutbox(snapshot);
+    mkdirSync(join(workingDirectory, "config", "notification-attachments"), { recursive: true });
+    writeFileSync(join(workingDirectory, "config", "notification-attachments", "event-1-0-screenshot.jpg"), "captured");
+    const { PrintNotificationCoordinator } =
+      await import("../src/services/printer-manager/print-notification-coordinator");
+    const coordinator = new PrintNotificationCoordinator();
+    coordinator.start();
+    await flushCurrentTimers();
+
+    expect(mocks.deliverThreadNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventId: "event-1",
+        threadId: "thread-1",
+        messageId: "message-previous",
+        tags: [ForumTag.IN_PROGRESS, ForumTag.MONOCOLOR, "Workshop P1S"],
+        files: [expect.objectContaining({ name: "screenshot.jpg" })]
+      })
+    );
+    expect(mocks.deliverThreadNotification.mock.calls[0][0].embed.toJSON()).toMatchObject({
+      title: "Progress",
+      footer: { text: "Bambu Lab Discord" },
+      fields: [{ name: "Progress", value: "10%", inline: true }]
+    });
+    expect(readOutbox().events).toEqual([]);
+    await coordinator.stop();
+  });
+
+  it("restarts from a valid create event with complete print identity", async () => {
+    const snapshot = validPersistedOutbox();
+    const event = persistedEvents(snapshot)[0];
+    event.kind = "create";
+    event.forumChannelId = "forum-1";
+    event.title = "Workshop print";
+    event.identity = {
+      subtaskId: "subtask-1",
+      taskId: "task-1",
+      gcodeFile: "plate.gcode.3mf",
+      plate: "1",
+      project: "Project"
+    };
+    delete event.threadId;
+    delete event.messageId;
+    delete persistedActivePrint(snapshot).mqtt;
+    writeOutbox(snapshot);
+    mkdirSync(join(workingDirectory, "config", "notification-attachments"), { recursive: true });
+    writeFileSync(join(workingDirectory, "config", "notification-attachments", "event-1-0-screenshot.jpg"), "captured");
+    const { PrintNotificationCoordinator } =
+      await import("../src/services/printer-manager/print-notification-coordinator");
+    const coordinator = new PrintNotificationCoordinator();
+    coordinator.start();
+    await flushCurrentTimers();
+
+    expect(mocks.deliverPrintThread).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "event-1", forumChannelId: "forum-1", title: "Workshop print" })
+    );
+    expect(mocks.setActivePrintThread).toHaveBeenCalledWith("printer-1", "thread-1", event.identity);
+    await coordinator.stop();
+  });
+
+  it("restarts from a valid MQTT alert and recovery journal", async () => {
+    const snapshot = validPersistedOutbox();
+    const event = persistedEvents(snapshot)[0];
+    event.kind = "mqtt-lost";
+    event.status = "ambiguous";
+    event.reconcileOnlyAfterRecovery = true;
+    writeOutbox(snapshot);
+    mkdirSync(join(workingDirectory, "config", "notification-attachments"), { recursive: true });
+    writeFileSync(join(workingDirectory, "config", "notification-attachments", "event-1-0-screenshot.jpg"), "captured");
+    const { PrintNotificationCoordinator } =
+      await import("../src/services/printer-manager/print-notification-coordinator");
+    const coordinator = new PrintNotificationCoordinator();
+    coordinator.start();
+    await flushCurrentTimers();
+
+    expect(mocks.deliverThreadNotification.mock.calls.map(call => call[0].embed.data.title)).toEqual([
+      "Progress",
+      "Communication rétablie"
+    ]);
+    expect(mocks.deliverThreadNotification.mock.calls[0][0]).toMatchObject({
+      eventId: "event-1",
+      reconcileOnly: true,
+      threadId: "thread-1"
+    });
+    expect(readOutbox().activePrints["printer-1"].mqtt).toBeUndefined();
+    await coordinator.stop();
   });
 
   it("persists attachments across retries and deletes them only after acknowledgement", async () => {
