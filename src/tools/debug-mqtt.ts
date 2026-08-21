@@ -141,6 +141,8 @@ export const createCaptureRecord = (
 
 export const formatCaptureRecord = (record: CaptureRecord): string => `${JSON.stringify(record)}\n`;
 
+export const createCaptureOutput = (path: string): WriteStream => createWriteStream(path, { flags: "wx", mode: 0o600 });
+
 const display = (value: JsonValue | undefined): string => String(value ?? "N/A");
 
 export const formatConsoleSummary = (record: CaptureRecord, previousState?: string): string => {
@@ -205,7 +207,7 @@ export const runMqttCapture = async (): Promise<void> => {
   }
 
   const outputPath = join(process.cwd(), `mqtt-debug-${Date.now()}.ndjson`);
-  const output = createWriteStream(outputPath, { flags: "wx" });
+  const output = createCaptureOutput(outputPath);
   const sanitize = createCaptureSanitizer();
   const topicReport = `device/${printerSerial}/report`;
   const topicRequest = `device/${printerSerial}/request`;

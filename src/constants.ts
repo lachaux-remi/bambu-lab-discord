@@ -16,6 +16,40 @@ const parseNumberSetting = (name: string, fallback: number, minimum: number, max
   return value;
 };
 
+const parseNotificationColor = (): `#${string}` => {
+  const fallback = "#24a543";
+  const value = process.env.NOTIFICATION_COLOR;
+  if (value === undefined || value.trim() === "") {
+    return fallback;
+  }
+
+  if (!/^#[\dA-Fa-f]{6}$/.test(value)) {
+    console.warn(`NOTIFICATION_COLOR must be # followed by 6 hexadecimal digits; using ${fallback}`);
+    return fallback;
+  }
+
+  return value as `#${string}`;
+};
+
+const parseNotificationFooterIcon = (): string => {
+  const value = process.env.NOTIFICATION_FOOTER_ICON;
+  if (value === undefined || value.trim() === "") {
+    return "";
+  }
+
+  try {
+    const url = new URL(value);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return value;
+    }
+  } catch {
+    // Fall through to the safe default.
+  }
+
+  console.warn("NOTIFICATION_FOOTER_ICON must be an HTTP(S) URL; using no footer icon");
+  return "";
+};
+
 export const APP_DEBUG = process.env.DEBUG === "true";
 
 export const MIN_NETWORK_PORT = 1;
@@ -29,8 +63,8 @@ export const MQTT_PROTOCOL = process.env.MQTT_PROTOCOL === "mqtt" ? "mqtt" : "mq
 // Notification settings
 export const NOTIFICATION_PERCENT = parseNumberSetting("NOTIFICATION_PERCENT", 5, 1, 100);
 export const NOTIFICATION_FOOTER_TEXT = process.env.NOTIFICATION_FOOTER_TEXT || "Bambu Lab Discord";
-export const NOTIFICATION_FOOTER_ICON = process.env.NOTIFICATION_FOOTER_ICON || "";
-export const NOTIFICATION_COLOR = (process.env.NOTIFICATION_COLOR || "#24a543") as `#${string}`;
+export const NOTIFICATION_FOOTER_ICON = parseNotificationFooterIcon();
+export const NOTIFICATION_COLOR = parseNotificationColor();
 
 // Minimum interval between MQTT failure summaries (default: 1 minute)
 export const ERROR_LOG_COOLDOWN_MS = parseNumberSetting("ERROR_LOG_COOLDOWN_MINUTES", 1, 1, 1440) * 60 * 1000;

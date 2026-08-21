@@ -168,21 +168,27 @@ function assertValidConfig(value: unknown): asserts value is BotConfig {
     issues.push("printers is required and must be an object");
   } else {
     for (const [id, printerValue] of Object.entries(config.printers)) {
+      if (id.trim() === "") {
+        issues.push("printers keys must be non-blank strings");
+      }
+
       if (!printerValue || typeof printerValue !== "object" || Array.isArray(printerValue)) {
         issues.push(`printers.${id} must be an object`);
         continue;
       }
 
       const printer = printerValue as Partial<PrinterConfig>;
-      if (printer.id !== id) {
-        issues.push(`printers.${id}.id must equal "${id}"`);
-      }
-
-      for (const field of ["name", "ip", "serial", "accessCode", "forumChannelId"] as const) {
+      for (const field of ["id", "name", "ip", "serial", "accessCode", "forumChannelId"] as const) {
         if (typeof printer[field] !== "string") {
           const requirement = printer[field] === undefined ? "is required and must be a string" : "must be a string";
           issues.push(`printers.${id}.${field} ${requirement}`);
+        } else if (printer[field].trim() === "") {
+          issues.push(`printers.${id}.${field} must be a non-blank string`);
         }
+      }
+
+      if (typeof printer.id === "string" && printer.id.trim() !== "" && printer.id !== id) {
+        issues.push(`printers.${id}.id must equal "${id}"`);
       }
 
       if (typeof printer.enabled !== "boolean") {
@@ -197,6 +203,16 @@ function assertValidConfig(value: unknown): asserts value is BotConfig {
           issues.push(`printers.${id}.${field} ${requirement}`);
         } else if (printer[field]! < MIN_NETWORK_PORT || printer[field]! > MAX_NETWORK_PORT) {
           issues.push(`printers.${id}.${field} must be between ${MIN_NETWORK_PORT} and ${MAX_NETWORK_PORT}`);
+        }
+      }
+
+      for (const field of ["createdAt", "updatedAt"] as const) {
+        if (!Number.isInteger(printer[field]) || printer[field]! < 0) {
+          const requirement =
+            printer[field] === undefined
+              ? "is required and must be a non-negative integer"
+              : "must be a non-negative integer";
+          issues.push(`printers.${id}.${field} ${requirement}`);
         }
       }
     }
@@ -266,7 +282,6 @@ export const writeJsonAtomic = (path: string, value: unknown): void => {
     fileDescriptor = undefined;
     closeSync(synchronizedFileDescriptor);
     renameSync(temporaryPath, path);
-    fsyncDirectory(dir);
   } catch (error) {
     if (fileDescriptor !== undefined) {
       try {
@@ -283,6 +298,15 @@ export const writeJsonAtomic = (path: string, value: unknown): void => {
       // Preserve the original write failure.
     }
     throw error;
+  }
+
+  try {
+    fsyncDirectory(dir);
+  } catch (error) {
+    logger.error(
+      { error, path, directory: dir },
+      "Atomic rename committed, but parent-directory sync failed; file durability is uncertain"
+    );
   }
 };
 
