@@ -7,6 +7,7 @@ import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { extractProjectImage } from "../src/libs/project";
+import type { StringNumber } from "../src/types/general";
 
 const { loggerMock, lookupMock, requestMock, sleepMock } = vi.hoisted(() => ({
   loggerMock: {
@@ -21,7 +22,7 @@ const { loggerMock, lookupMock, requestMock, sleepMock } = vi.hoisted(() => ({
 
 vi.mock("node:dns/promises", () => ({ lookup: lookupMock }));
 vi.mock("node:https", () => ({ request: requestMock }));
-vi.mock("timers/promises", () => ({ setTimeout: sleepMock }));
+vi.mock("node:timers/promises", () => ({ setTimeout: sleepMock }));
 vi.mock("../src/libs/logger", () => ({ getLogger: () => loggerMock }));
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -53,10 +54,8 @@ const projectArchive = (files: Record<string, Buffer>): Buffer => {
   return archive.toBuffer();
 };
 
-const pngArchive = (
-  plate: string | number = 1,
-  contents: Buffer = Buffer.concat([PNG_SIGNATURE, Buffer.from("png")])
-) => projectArchive({ [`Metadata/plate_${plate}.png`]: contents });
+const pngArchive = (plate: StringNumber = "1", contents: Buffer = Buffer.concat([PNG_SIGNATURE, Buffer.from("png")])) =>
+  projectArchive({ [`Metadata/plate_${plate}.png`]: contents });
 
 const respondToRequests = (createResponse: () => IncomingMessage): void => {
   requestMock.mockImplementation((_url: URL, _options: RequestOptions, callback: (value: IncomingMessage) => void) => {
@@ -85,7 +84,7 @@ const invokeLookup = (lookup: PinnedLookup, options: LookupOptions): Promise<str
     });
   });
 
-const extract = (url: string = "https://projects.example/model.3mf", plate: string | number = 1) =>
+const extract = (url: string = "https://projects.example/model.3mf", plate: StringNumber = "1") =>
   extractProjectImage({ url, plate });
 
 describe("project image download", () => {
@@ -329,7 +328,7 @@ describe("project image download", () => {
   });
 
   it("returns null when the requested plate is absent", async () => {
-    respondToRequests(() => response(200, [pngArchive(2)]));
+    respondToRequests(() => response(200, [pngArchive("2")]));
 
     await expect(extract()).resolves.toBeNull();
 
@@ -338,7 +337,7 @@ describe("project image download", () => {
 
   it("rejects a plate image whose declared size exceeds the limit", async () => {
     const oversizedPng = Buffer.concat([PNG_SIGNATURE, Buffer.alloc(15 * 1024 * 1024)]);
-    respondToRequests(() => response(200, [pngArchive(1, oversizedPng)]));
+    respondToRequests(() => response(200, [pngArchive("1", oversizedPng)]));
 
     await expect(extract()).resolves.toBeNull();
 
@@ -346,7 +345,7 @@ describe("project image download", () => {
   });
 
   it("rejects a plate image without a PNG signature", async () => {
-    respondToRequests(() => response(200, [pngArchive(1, Buffer.from("not a png"))]));
+    respondToRequests(() => response(200, [pngArchive("1", Buffer.from("not a png"))]));
 
     await expect(extract()).resolves.toBeNull();
 

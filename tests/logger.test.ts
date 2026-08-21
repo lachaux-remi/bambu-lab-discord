@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const { childMock, pinoMock } = vi.hoisted(() => ({ childMock: vi.fn(), pinoMock: vi.fn() }));
 
 vi.mock("pino", async importOriginal => {
-  const actual = await importOriginal<typeof import("pino")>();
+  const actual = await importOriginal<{ default: typeof import("pino") }>();
   return {
     default: Object.assign(pinoMock, { stdSerializers: actual.default.stdSerializers })
   };
@@ -38,7 +38,7 @@ describe("logger", () => {
   it("redacts credentials and encrypted values at common nesting levels", async () => {
     pinoMock.mockReturnValue({ child: childMock });
     childMock.mockReturnValue({});
-    const { default: actualPino } = await vi.importActual<typeof import("pino")>("pino");
+    const { default: actualPino } = await vi.importActual<{ default: typeof import("pino") }>("pino");
     await import("../src/libs/logger");
     const options = pinoMock.mock.calls[0][0] as LoggerOptions;
     let output = "";

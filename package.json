@@ -1,12 +1,13 @@
 {
   "name": "bambu-lab-discord",
   "version": "2.4.2",
+  "private": true,
   "description": "",
   "packageManager": "pnpm@11.0.9",
   "engines": {
     "node": ">=24 <25"
   },
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "clean": "rimraf dist",
     "build": "pnpm run clean && tsc && mkdir -p dist/libs/bambu-tls && cp src/libs/bambu-tls/bambu-printer-ca.pem dist/libs/bambu-tls/bambu-printer-ca.pem",
@@ -14,8 +15,9 @@
     "local": "tsx --env-file-if-exists=.env src/index.ts",
     "local:watch": "nodemon",
     "dev:mqtt-emulator": "tsx --env-file-if-exists=.env src/tools/mock-mqtt-printer.ts",
-    "lint": "eslint src/ tests/ vitest.config.mts",
+    "lint": "eslint src/ tests/ vitest.config.mts --max-warnings 0",
     "lint:fix": "eslint src/ tests/ vitest.config.mts --fix",
+    "typecheck:test": "tsc --project tsconfig.test.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
@@ -30,12 +32,10 @@
     "@eslint/js": "^10.0.1",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
     "@types/node": "^24.13.3",
-    "@typescript-eslint/eslint-plugin": "^8.67.0",
     "@typescript-eslint/parser": "^8.67.0",
     "@vitest/coverage-v8": "^4.1.11",
     "aedes": "1.1.1",
     "eslint": "^10.8.1",
-    "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
     "nodemon": "^3.1.14",
     "prettier": "^3.9.6",

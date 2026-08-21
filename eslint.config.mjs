@@ -21,11 +21,6 @@ export default tsEslint.config(eslint.configs.recommended, ...tsEslint.configs.r
       }
     ],
     "no-debugger": "error",
-    "prettier/prettier": [
-      "error",
-      {
-        endOfLine: "auto"
-      }
-    ]
+    "prettier/prettier": "error"
   }
 });
