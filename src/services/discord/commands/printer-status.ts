@@ -4,6 +4,7 @@ import { PrintState } from "../../../enums";
 import { formatMinuteToBestDisplay } from "../../../utils/time.util";
 import { getPrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
+import { DISCORD_EMBED_FIELD_VALUE_LIMIT, DISCORD_EMBED_TITLE_LIMIT, truncateDiscordText } from "../payload";
 import { PRINTER_OPTION } from "./contract";
 
 const PRINT_STATE_LABELS: Record<PrintState, string> = {
@@ -40,7 +41,7 @@ export const handlePrinterStatus = async (interaction: ChatInputCommandInteracti
     : "Non disponible";
 
   const embed = new EmbedBuilder()
-    .setTitle(`🖨️ État de ${printer.name}`)
+    .setTitle(truncateDiscordText(`🖨️ État de ${printer.name}`, DISCORD_EMBED_TITLE_LIMIT))
     .setColor(status.connected ? "#24a543" : status.running ? "#e5a50a" : "#c01c28")
     .addFields(
       {
@@ -50,7 +51,11 @@ export const handlePrinterStatus = async (interaction: ChatInputCommandInteracti
       },
       { name: "MQTT", value: status.connected ? "Connecté" : "Déconnecté", inline: true },
       { name: "État d'impression", value: print?.state ? PRINT_STATE_LABELS[print.state] : "Inconnu", inline: true },
-      { name: "Projet", value: print?.project || "Non disponible", inline: true },
+      {
+        name: "Projet",
+        value: truncateDiscordText(print?.project || "Non disponible", DISCORD_EMBED_FIELD_VALUE_LIMIT),
+        inline: true
+      },
       { name: "Progression", value: displayNumber(print?.progressPercent, " %"), inline: true },
       { name: "Couche", value: layer, inline: true },
       { name: "Temps restant", value: remainingTime, inline: true }

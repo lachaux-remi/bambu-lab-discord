@@ -29,11 +29,11 @@ import {
 } from "../database";
 import { type DiscordFailureReason, deliverPrintThread, deliverThreadNotification } from "../discord/bot";
 import { createBaseEmbed } from "../discord/embeds";
+import { DISCORD_ATTACHMENT_SIZE_LIMIT } from "../discord/payload";
 
 const logger = getLogger("PrintNotificationCoordinator");
 const OUTBOX_PATH = join(process.cwd(), "config", "notification-outbox.json");
 const ATTACHMENTS_PATH = join(process.cwd(), "config", "notification-attachments");
-const MAX_ATTACHMENTS_SIZE = 20 * 1024 * 1024;
 const MQTT_LOSS_DELAY_MS = 60_000;
 const MAX_RETRY_DELAY_MS = 60_000;
 
@@ -705,16 +705,15 @@ export class PrintNotificationCoordinator {
     if (input.capture) {
       try {
         const screenshot = await input.capture();
-        const currentSize = event.attachments.reduce((total, attachment) => total + attachment.size, 0);
-        if (screenshot && currentSize + screenshot.length <= MAX_ATTACHMENTS_SIZE) {
+        if (screenshot && screenshot.length <= DISCORD_ATTACHMENT_SIZE_LIMIT) {
           event.attachments.push(
             this.persistAttachment(id, event.attachments.length, SCREENSHOT_ATTACHMENT_NAME, screenshot)
           );
           event.embed = { ...event.embed, image: { url: SCREENSHOT_ATTACHMENT_URL } };
         } else if (screenshot) {
           logger.warn(
-            { eventId: id, totalSize: currentSize + screenshot.length, limit: MAX_ATTACHMENTS_SIZE },
-            "Notification attachments exceed size limit"
+            { eventId: id, attachmentSize: screenshot.length, limit: DISCORD_ATTACHMENT_SIZE_LIMIT },
+            "Discord attachment omitted; delivering notification text without it"
           );
         }
       } catch (error) {
@@ -731,17 +730,24 @@ export class PrintNotificationCoordinator {
   }
 
   private persistAttachments(eventId: string, result: EmbedResult): PersistedAttachment[] {
-    const files = (result.files ?? []).filter(file => file.buffer);
-    const totalSize = files.reduce((total, file) => total + file.buffer!.length, 0);
-    if (totalSize > MAX_ATTACHMENTS_SIZE) {
-      logger.warn({ eventId, totalSize, limit: MAX_ATTACHMENTS_SIZE }, "Notification attachments exceed size limit");
-      return [];
-    }
+    const files = (result.files ?? []).flatMap(file => {
+      if (!file.buffer) {
+        return [];
+      }
+      if (file.buffer.length > DISCORD_ATTACHMENT_SIZE_LIMIT) {
+        logger.warn(
+          { eventId, attachmentSize: file.buffer.length, limit: DISCORD_ATTACHMENT_SIZE_LIMIT },
+          "Discord attachment omitted; delivering notification text without it"
+        );
+        return [];
+      }
+      return [{ name: file.name, buffer: file.buffer }];
+    });
     if (files.length === 0) {
       return [];
     }
     mkdirSync(ATTACHMENTS_PATH, { recursive: true, mode: 0o700 });
-    const attachments = files.map((file, index) => this.persistAttachment(eventId, index, file.name, file.buffer!));
+    const attachments = files.map((file, index) => this.persistAttachment(eventId, index, file.name, file.buffer));
     fsyncDirectory(ATTACHMENTS_PATH);
     return attachments;
   }

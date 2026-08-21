@@ -6,6 +6,7 @@ import { getPrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
 import { createPrintThread } from "../bot";
 import { createBaseEmbed } from "../embeds";
+import { DISCORD_EMBED_TITLE_LIMIT, truncateDiscordText } from "../payload";
 import { PRINTER_OPTION } from "./contract";
 
 export const handlePrinterScreenshot = async (interaction: ChatInputCommandInteraction): Promise<void> => {
@@ -29,7 +30,7 @@ export const handlePrinterScreenshot = async (interaction: ChatInputCommandInter
   }
 
   const embed = createBaseEmbed()
-    .setTitle(`📸 Test de capture — ${printer.name}`)
+    .setTitle(truncateDiscordText(`📸 Test de capture — ${printer.name}`, DISCORD_EMBED_TITLE_LIMIT))
     .setDescription("Notification de test générée manuellement depuis Discord.")
     .setImage(SCREENSHOT_ATTACHMENT_URL);
   const threadId = await createPrintThread(

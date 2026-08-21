@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ForumTag, PrintState } from "../src/enums";
+import { DISCORD_ATTACHMENT_SIZE_LIMIT } from "../src/services/discord/payload";
 import type { Status, StatusWithState } from "../src/types/printer-status";
 
 const mocks = vi.hoisted(() => ({
@@ -809,7 +810,7 @@ describe.sequential("PrintNotificationCoordinator", () => {
     await coordinator.stop();
   });
 
-  it("enforces the 20 MiB limit and removes orphan files on startup", async () => {
+  it("persists a 10 MiB attachment, omits a +1 byte attachment, and removes orphan files", async () => {
     mkdirSync(join(workingDirectory, "config", "notification-attachments"), { recursive: true });
     writeFileSync(join(workingDirectory, "config", "notification-attachments", "orphan.jpg"), "orphan");
     const { PrintNotificationCoordinator } =
@@ -821,15 +822,51 @@ describe.sequential("PrintNotificationCoordinator", () => {
     await coordinator.enqueueNotification(
       context(),
       {
-        embed: new EmbedBuilder().setImage("attachment://large.jpg"),
-        files: [{ name: "large.jpg", buffer: Buffer.alloc(20 * 1024 * 1024 + 1) }]
+        embed: new EmbedBuilder().setImage("attachment://exact.jpg").setThumbnail("attachment://oversized.jpg"),
+        files: [
+          { name: "exact.jpg", buffer: Buffer.alloc(DISCORD_ATTACHMENT_SIZE_LIMIT) },
+          { name: "oversized.jpg", buffer: Buffer.alloc(DISCORD_ATTACHMENT_SIZE_LIMIT + 1) }
+        ]
       },
       [ForumTag.IN_PROGRESS]
     );
 
     const event = readOutbox().events[0];
-    expect(event.attachments).toEqual([]);
-    expect(event.embed.image).toBeUndefined();
+    expect(event.attachments).toEqual([
+      expect.objectContaining({ name: "exact.jpg", size: DISCORD_ATTACHMENT_SIZE_LIMIT })
+    ]);
+    expect(event.embed.image).toEqual({ url: "attachment://exact.jpg" });
+    expect(event.embed.thumbnail).toBeUndefined();
+    expect(readdirSync(join(workingDirectory, "config", "notification-attachments"))).toHaveLength(1);
+    await coordinator.stop();
+  });
+
+  it("delivers outbox text when a captured image exceeds 10 MiB", async () => {
+    const { PrintNotificationCoordinator } =
+      await import("../src/services/printer-manager/print-notification-coordinator");
+    const coordinator = new PrintNotificationCoordinator();
+    coordinator.start();
+    coordinator.recoverThread(context(), "thread-1");
+    await coordinator.enqueueNotification(
+      context(),
+      { embed: new EmbedBuilder().setDescription("Text remains deliverable") },
+      [ForumTag.IN_PROGRESS],
+      false,
+      async () => Buffer.alloc(DISCORD_ATTACHMENT_SIZE_LIMIT + 1)
+    );
+    await flushCurrentTimers();
+
+    const delivery = mocks.deliverThreadNotification.mock.calls[0]?.[0];
+    expect(delivery.files).toEqual([]);
+    expect(delivery.embed.toJSON()).toEqual({ description: "Text remains deliverable" });
+    expect(readOutbox().events).toEqual([]);
+    expect(mocks.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachmentSize: DISCORD_ATTACHMENT_SIZE_LIMIT + 1,
+        limit: DISCORD_ATTACHMENT_SIZE_LIMIT
+      }),
+      "Discord attachment omitted; delivering notification text without it"
+    );
     await coordinator.stop();
   });
 });

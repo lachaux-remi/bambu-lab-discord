@@ -1,6 +1,7 @@
 import { EmbedBuilder } from "discord.js";
 
 import { NOTIFICATION_COLOR, NOTIFICATION_FOOTER_ICON, NOTIFICATION_FOOTER_TEXT } from "../../../constants";
+import { DISCORD_EMBED_FOOTER_LIMIT, truncateDiscordText } from "../payload";
 
 /**
  * Crée un EmbedBuilder avec les paramètres de base communs à toutes les notifications
@@ -12,7 +13,7 @@ export const createBaseEmbed = (): EmbedBuilder => {
   return new EmbedBuilder()
     .setColor(NOTIFICATION_COLOR)
     .setFooter({
-      text: NOTIFICATION_FOOTER_TEXT,
+      text: truncateDiscordText(NOTIFICATION_FOOTER_TEXT, DISCORD_EMBED_FOOTER_LIMIT),
       ...(NOTIFICATION_FOOTER_ICON ? { iconURL: NOTIFICATION_FOOTER_ICON } : {})
     })
     .setTimestamp(new Date());
