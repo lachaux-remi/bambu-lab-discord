@@ -5,10 +5,10 @@ FROM node:${NODE_VERSION}-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6f
 
 WORKDIR /usr/src/app
 
+FROM base AS build
+
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g pnpm@${PNPM_VERSION}
-
-FROM base AS build
 
 RUN --mount=type=bind,source=package.json,target=package.json \
     --mount=type=bind,source=pnpm-lock.yaml,target=pnpm-lock.yaml \
