@@ -143,6 +143,7 @@ export default class BambuLabClient extends EventEmitter {
         if (stopTransport) {
           const initialConnectionPending = connectionState === MqttConnectionState.PENDING;
           connectionState = MqttConnectionState.STOPPED;
+          this.stopping = true;
           clearTimeout(timeout);
           this.connectionAttempt = undefined;
           const shutdown = this.shutdownTransport(mqttClient, true);
@@ -235,7 +236,12 @@ export default class BambuLabClient extends EventEmitter {
       mqttClient.on("offline", emitCommunicationLost);
       mqttClient.on("close", emitCommunicationLost);
       mqttClient.on("message", (receivedTopic: string, payload: Buffer) => {
-        if (receivedTopic !== this.topicReport) {
+        if (
+          receivedTopic !== this.topicReport ||
+          this.stopping ||
+          connectionState === MqttConnectionState.STOPPED ||
+          this.mqttClient !== mqttClient
+        ) {
           return;
         }
 
@@ -373,11 +379,13 @@ export default class BambuLabClient extends EventEmitter {
     if (this.disconnectPromise) {
       return this.disconnectPromise;
     }
-    if (this.mqttClient === mqttClient) {
-      this.mqttClient = undefined;
-    }
 
-    const shutdown = mqttClient.endAsync(force);
+    const shutdown = Promise.all([this.messageQueue, this.screenshotQueue]).then(async () => {
+      if (this.mqttClient === mqttClient) {
+        this.mqttClient = undefined;
+      }
+      await mqttClient.endAsync(force);
+    });
     const disconnectPromise = shutdown.finally(() => {
       if (this.disconnectPromise === disconnectPromise) {
         this.disconnectPromise = undefined;
@@ -401,8 +409,8 @@ export default class BambuLabClient extends EventEmitter {
     this.setChamberLight(LightMode.ON);
   }
 
-  private setChamberLight(mode: LightMode): void {
-    if (!this.mqttClient?.connected) {
+  private setChamberLight(mode: LightMode, allowWhileStopping = false): void {
+    if ((!allowWhileStopping && this.stopping) || !this.mqttClient?.connected) {
       logger.warn({ printer: this.config.name }, `Cannot turn ${mode} chamber light: not connected`);
       return;
     }
@@ -437,12 +445,16 @@ export default class BambuLabClient extends EventEmitter {
    * The light is turned off again after capture only if it was off before.
    */
   public takeScreenshotWithLight(): Promise<Buffer | null> {
+    if (this.stopping) {
+      return Promise.resolve(null);
+    }
+
     const screenshot = this.screenshotQueue.then(async () => {
       const wasLightOn = this.chamberLightOn;
 
       if (!wasLightOn) {
         logger.debug({ printer: this.config.name }, "Chamber light was off, turning on for screenshot");
-        this.turnOnChamberLight();
+        this.setChamberLight(LightMode.ON, true);
         await new Promise(resolve => setTimeout(resolve, CHAMBER_LIGHT_WARMUP_MS));
       }
 
@@ -451,7 +463,7 @@ export default class BambuLabClient extends EventEmitter {
       } finally {
         if (!wasLightOn) {
           logger.debug({ printer: this.config.name }, "Turning off chamber light after screenshot");
-          this.turnOffChamberLight();
+          this.setChamberLight(LightMode.OFF, true);
         }
       }
     });
