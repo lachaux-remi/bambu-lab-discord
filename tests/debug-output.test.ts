@@ -52,7 +52,7 @@ describe("debug output files", () => {
     mkdirSync(configDirectory);
     const sensitiveValue = "sensitive-config-value-must-not-appear";
     writeFileSync(join(configDirectory, "printers.json"), `{invalid-json:${sensitiveValue}`, "utf8");
-    const environment = { ...process.env, LOG_FORMAT: "json" };
+    const environment: NodeJS.ProcessEnv = { ...process.env, LOG_FORMAT: "json" };
     delete environment.PRINTER_ADDRESS;
     delete environment.PRINTER_ACCESS_CODE;
     delete environment.PRINTER_SERIAL_NUMBER;
