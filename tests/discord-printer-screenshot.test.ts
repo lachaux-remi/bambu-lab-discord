@@ -48,7 +48,7 @@ describe("printer screenshot command", () => {
       ["Attention", "Workshop P1S"],
       "forum-1"
     );
-    const embed = mocks.createPrintThread.mock.calls[0][2];
+    const embed = mocks.createPrintThread.mock.calls[0]![2];
     expect(embed.data).toMatchObject({
       title: "📸 Test de capture — Workshop P1S",
       image: { url: "attachment://screenshot.jpg" }

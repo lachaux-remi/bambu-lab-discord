@@ -218,7 +218,7 @@ describe.sequential("reliable Discord delivery", () => {
       status: "sent",
       value: { threadId: "thread-1" }
     });
-    expect(Array.from(create.mock.calls[0][0].name)).toHaveLength(100);
+    expect(Array.from(create.mock.calls[0]?.[0].name ?? "")).toHaveLength(100);
     await expect(deliverPrintThread({ ...input, eventId: "invalid-form" })).resolves.toEqual({
       status: "blocked",
       reason: { category: "discord-validation-failed", code: 50035, status: 400 }

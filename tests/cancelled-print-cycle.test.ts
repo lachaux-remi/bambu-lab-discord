@@ -241,8 +241,8 @@ describe("cancelled print MQTT cycle", () => {
     report({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.RUNNING, mc_percent: 5 });
 
     await vi.waitFor(() => expect(mocks.coordinator.enqueueThreadCreation).toHaveBeenCalledTimes(2));
-    const firstKey = mocks.coordinator.enqueueThreadCreation.mock.calls[0][0].printKey;
-    const secondKey = mocks.coordinator.enqueueThreadCreation.mock.calls[1][0].printKey;
+    const firstKey = mocks.coordinator.enqueueThreadCreation.mock.calls[0]![0].printKey;
+    const secondKey = mocks.coordinator.enqueueThreadCreation.mock.calls[1]![0].printKey;
     expect(secondKey).not.toBe(firstKey);
   });
 });

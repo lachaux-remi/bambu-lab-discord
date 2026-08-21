@@ -192,6 +192,14 @@ const status = (state: PrintState, progressPercent = 25, overrides: Partial<Stat
   ...overrides
 });
 
+const getClient = (index: number) => {
+  const client = mocks.clients[index];
+  if (!client) {
+    throw new Error(`Expected printer client at index ${index}`);
+  }
+  return client;
+};
+
 describe("PrinterManager public seam", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -237,7 +245,7 @@ describe("PrinterManager public seam", () => {
     await expect(printerManager.startPrinter(config.id)).resolves.toBe(true);
 
     expect(mocks.Client).toHaveBeenCalledOnce();
-    expect(mocks.clients[0].connect).toHaveBeenCalledOnce();
+    expect(getClient(0).connect).toHaveBeenCalledOnce();
     expect(printerManager.getRunningPrinters()).toEqual([config.id]);
     expect(printerManager.getPrinterStatus(config.id)).toEqual({ running: true, connected: true });
   });
@@ -246,7 +254,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(status(PrintState.RUNNING), status(PrintState.PREPARE, 0));
+    await getClient(0).emitStatus(status(PrintState.RUNNING), status(PrintState.PREPARE, 0));
 
     expect(printerManager.getPrinterStatus(config.id)).toEqual({
       running: true,
@@ -266,10 +274,10 @@ describe("PrinterManager public seam", () => {
     const screenshot = Buffer.from("jpeg");
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
-    mocks.clients[0].takeScreenshotWithLight.mockResolvedValue(screenshot);
+    getClient(0).takeScreenshotWithLight.mockResolvedValue(screenshot);
 
     await expect(printerManager.takeScreenshot(config.id)).resolves.toBe(screenshot);
-    expect(mocks.clients[0].takeScreenshotWithLight).toHaveBeenCalledOnce();
+    expect(getClient(0).takeScreenshotWithLight).toHaveBeenCalledOnce();
     await expect(printerManager.takeScreenshot("missing")).resolves.toBeNull();
   });
 
@@ -285,7 +293,7 @@ describe("PrinterManager public seam", () => {
     await Promise.resolve();
 
     expect(mocks.Client).toHaveBeenCalledOnce();
-    expect(mocks.clients[0].connect).toHaveBeenCalledOnce();
+    expect(getClient(0).connect).toHaveBeenCalledOnce();
     finishConnection?.();
     await expect(Promise.all([firstStart, secondStart])).resolves.toEqual([true, true]);
     expect(printerManager.getRunningPrinters()).toEqual([config.id]);
@@ -298,11 +306,11 @@ describe("PrinterManager public seam", () => {
 
     await expect(printerManager.startAll()).resolves.toBeUndefined();
     expect(printerManager.getPrinterStatus(config.id)).toEqual({ running: true, connected: false });
-    mocks.clients[0].isConnected.mockReturnValue(true);
+    getClient(0).isConnected.mockReturnValue(true);
     expect(printerManager.getPrinterStatus(config.id)).toEqual({ running: true, connected: true });
     await expect(printerManager.startPrinter(config.id)).resolves.toBe(true);
     expect(mocks.Client).toHaveBeenCalledOnce();
-    expect(mocks.clients[0].disconnect).not.toHaveBeenCalled();
+    expect(getClient(0).disconnect).not.toHaveBeenCalled();
   });
 
   it("fails global startup on MQTT certificate validation errors", async () => {
@@ -315,7 +323,7 @@ describe("PrinterManager public seam", () => {
 
     await expect(printerManager.startAll()).rejects.toBe(tlsError);
     expect(printerManager.getRunningPrinters()).toEqual([]);
-    expect(mocks.clients[0].disconnect).toHaveBeenCalledOnce();
+    expect(getClient(0).disconnect).toHaveBeenCalledOnce();
   });
 
   it("stops a queued start before it opens a connection", async () => {
@@ -339,11 +347,11 @@ describe("PrinterManager public seam", () => {
 
     const start = printerManager.startPrinter(config.id);
     await Promise.resolve();
-    mocks.clients[0].disconnect.mockImplementation(async () => cancelConnection?.());
+    getClient(0).disconnect.mockImplementation(async () => cancelConnection?.());
 
     await expect(printerManager.stopPrinter(config.id)).resolves.toBe(true);
     await expect(start).resolves.toBe(false);
-    expect(mocks.clients[0].disconnect).toHaveBeenCalledOnce();
+    expect(getClient(0).disconnect).toHaveBeenCalledOnce();
     expect(printerManager.getRunningPrinters()).toEqual([]);
 
     await expect(printerManager.startPrinter(config.id)).resolves.toBe(true);
@@ -354,7 +362,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
     let finishDisconnect: (() => void) | undefined;
-    mocks.clients[0].disconnect.mockImplementation(() => new Promise<void>(resolve => (finishDisconnect = resolve)));
+    getClient(0).disconnect.mockImplementation(() => new Promise<void>(resolve => (finishDisconnect = resolve)));
 
     const restart = printerManager.restartPrinter(config.id);
     await Promise.resolve();
@@ -366,7 +374,7 @@ describe("PrinterManager public seam", () => {
     await expect(restart).resolves.toBe(true);
     await expect(concurrentStart).resolves.toBe(true);
     expect(mocks.Client).toHaveBeenCalledTimes(2);
-    expect(mocks.clients[1].connect).toHaveBeenCalledOnce();
+    expect(getClient(1).connect).toHaveBeenCalledOnce();
   });
 
   it("starts an unavailable configured printer and shares that serialized restart with a concurrent start", async () => {
@@ -380,7 +388,7 @@ describe("PrinterManager public seam", () => {
     const concurrentStart = printerManager.startPrinter(config.id);
 
     await vi.waitFor(() => expect(mocks.Client).toHaveBeenCalledOnce());
-    expect(mocks.clients[0].connect).toHaveBeenCalledOnce();
+    expect(getClient(0).connect).toHaveBeenCalledOnce();
     finishConnection?.();
     await expect(Promise.all([restart, concurrentStart])).resolves.toEqual([true, true]);
     expect(printerManager.getRunningPrinters()).toEqual([config.id]);
@@ -394,9 +402,9 @@ describe("PrinterManager public seam", () => {
 
     await expect(printerManager.restartPrinter(config.id)).resolves.toBe(true);
 
-    expect(mocks.clients[0].disconnect).toHaveBeenCalledOnce();
+    expect(getClient(0).disconnect).toHaveBeenCalledOnce();
     expect(mocks.Client).toHaveBeenCalledTimes(2);
-    expect(mocks.clients[1].connect).toHaveBeenCalledOnce();
+    expect(getClient(1).connect).toHaveBeenCalledOnce();
     expect(printerManager.getPrinterStatus(config.id)).toEqual({ running: true, connected: true });
   });
 
@@ -404,7 +412,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
     let finishDisconnect: (() => void) | undefined;
-    mocks.clients[0].disconnect.mockImplementation(
+    getClient(0).disconnect.mockImplementation(
       () =>
         new Promise<void>(resolve => {
           finishDisconnect = resolve;
@@ -426,7 +434,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
     let finishDisconnect: (() => void) | undefined;
-    mocks.clients[0].disconnect.mockImplementation(
+    getClient(0).disconnect.mockImplementation(
       () =>
         new Promise<void>(resolve => {
           finishDisconnect = resolve;
@@ -440,19 +448,19 @@ describe("PrinterManager public seam", () => {
     await Promise.resolve();
 
     expect(mocks.Client).toHaveBeenCalledOnce();
-    expect(mocks.clients[0].disconnect).toHaveBeenCalledOnce();
+    expect(getClient(0).disconnect).toHaveBeenCalledOnce();
     finishDisconnect?.();
 
     await expect(stop).resolves.toBe(true);
     await expect(Promise.all([firstStart, duplicateStart])).resolves.toEqual([true, true]);
     expect(mocks.Client).toHaveBeenCalledTimes(2);
-    expect(mocks.clients[1].connect).toHaveBeenCalledOnce();
+    expect(getClient(1).connect).toHaveBeenCalledOnce();
   });
 
   it("retains ownership after a failed stop without blocking later operations", async () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
-    mocks.clients[0].disconnect.mockRejectedValue(new Error("disconnect failed"));
+    getClient(0).disconnect.mockRejectedValue(new Error("disconnect failed"));
 
     await expect(printerManager.stopPrinter(config.id)).rejects.toThrow("disconnect failed");
     await expect(printerManager.startPrinter(config.id)).resolves.toBe(true);
@@ -472,9 +480,9 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter("printer-1");
     await printerManager.startPrinter("printer-2");
-    mocks.clients[0].disconnect.mockRejectedValue(new Error("disconnect failed"));
+    getClient(0).disconnect.mockRejectedValue(new Error("disconnect failed"));
     let finishSecondDisconnect: (() => void) | undefined;
-    mocks.clients[1].disconnect.mockImplementation(
+    getClient(1).disconnect.mockImplementation(
       () =>
         new Promise<void>(resolve => {
           finishSecondDisconnect = resolve;
@@ -488,8 +496,8 @@ describe("PrinterManager public seam", () => {
     await Promise.resolve();
 
     expect(shutdownSettled).toBe(false);
-    expect(mocks.clients[0].disconnect).toHaveBeenCalledOnce();
-    expect(mocks.clients[1].disconnect).toHaveBeenCalledOnce();
+    expect(getClient(0).disconnect).toHaveBeenCalledOnce();
+    expect(getClient(1).disconnect).toHaveBeenCalledOnce();
     finishSecondDisconnect?.();
     await expect(shutdown).rejects.toThrow("Failed to stop all printers");
     expect(printerManager.getRunningPrinters()).toEqual(["printer-1"]);
@@ -500,11 +508,11 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
+    await getClient(0).emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
     expect(mocks.coordinator.recoverThread).toHaveBeenCalledWith(expect.anything(), "thread-recovered");
     expect(mocks.createPrintThread).not.toHaveBeenCalled();
 
-    await mocks.clients[0].emitStatus(status(PrintState.FINISH, 100), status(PrintState.RUNNING));
+    await getClient(0).emitStatus(status(PrintState.FINISH, 100), status(PrintState.RUNNING));
     expect(mocks.sendToThread).toHaveBeenCalledWith("thread-recovered", expect.anything(), []);
     expect(mocks.removeActivePrintThread).toHaveBeenCalledWith(config.id);
   });
@@ -515,7 +523,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
+    await getClient(0).emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
 
     expect(mocks.coordinator.recoverThread).toHaveBeenCalledWith(expect.anything(), "thread-stale");
     expect(mocks.removeActivePrintThread).not.toHaveBeenCalled();
@@ -527,7 +535,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
+    await getClient(0).emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
 
     expect(mocks.isPrintThreadAvailable).not.toHaveBeenCalled();
     expect(mocks.removeActivePrintThread).toHaveBeenCalledWith(config.id);
@@ -539,7 +547,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(
+    await getClient(0).emitStatus(
       status(PrintState.RUNNING, 1, {
         subtaskId: "subtask-1",
         taskId: "task-1",
@@ -556,7 +564,7 @@ describe("PrinterManager public seam", () => {
       plate: "2",
       project: "Benchy"
     });
-    expect(mocks.setActivePrintThread.mock.calls[0][2]).not.toHaveProperty("startedAt");
+    expect(mocks.setActivePrintThread.mock.calls[0]![2]).not.toHaveProperty("startedAt");
   });
 
   it("rejects a persisted thread when both cloud subtask IDs are known and changed", async () => {
@@ -567,7 +575,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(
+    await getClient(0).emitStatus(
       status(PrintState.RUNNING, 25, { subtaskId: "subtask-new", taskId: "task-1", plate: 1 }),
       status(PrintState.UNKNOWN, 0)
     );
@@ -585,7 +593,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(
+    await getClient(0).emitStatus(
       status(PrintState.RUNNING, 25, { subtaskId: "subtask-1", taskId: "task-new", plate: 2 }),
       status(PrintState.UNKNOWN, 0)
     );
@@ -605,7 +613,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(status(PrintState.RUNNING, 25, { taskId, plate }), status(PrintState.UNKNOWN, 0));
+    await getClient(0).emitStatus(status(PrintState.RUNNING, 25, { taskId, plate }), status(PrintState.UNKNOWN, 0));
 
     expect(mocks.isPrintThreadAvailable).not.toHaveBeenCalled();
     expect(mocks.createPrintThread).toHaveBeenCalledOnce();
@@ -623,7 +631,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(
+    await getClient(0).emitStatus(
       status(PrintState.RUNNING, 25, { gcodeFile: "new-benchy.gcode.3mf", plate: 1 }),
       status(PrintState.UNKNOWN, 0)
     );
@@ -644,7 +652,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(
+    await getClient(0).emitStatus(
       status(PrintState.RUNNING, 25, { gcodeFile: "benchy.gcode.3mf", plate: 1 }),
       status(PrintState.UNKNOWN, 0)
     );
@@ -661,7 +669,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
+    await getClient(0).emitStatus(status(PrintState.RUNNING), status(PrintState.UNKNOWN, 0));
 
     expect(mocks.coordinator.recoverThread).toHaveBeenCalledWith(expect.anything(), "thread-partial-cloud");
     expect(mocks.createPrintThread).not.toHaveBeenCalled();
@@ -677,11 +685,11 @@ describe("PrinterManager public seam", () => {
       mocks.getActivePrintThread.mockReturnValue({ threadId: "thread-paused", project: "Benchy" });
       const { printerManager } = await import("../src/services/printer-manager");
       await printerManager.startPrinter(config.id);
-      await mocks.clients[0].emitStatus(status(PrintState.PAUSE), status(PrintState.UNKNOWN, 0));
+      await getClient(0).emitStatus(status(PrintState.PAUSE), status(PrintState.UNKNOWN, 0));
       mocks.sendToThread.mockClear();
       mocks.removeActivePrintThread.mockClear();
 
-      await mocks.clients[0].emitStatus(status(terminalState, progress), status(PrintState.PAUSE));
+      await getClient(0).emitStatus(status(terminalState, progress), status(PrintState.PAUSE));
 
       expect(mocks[expectedNotification]).toHaveBeenCalledOnce();
       expect(mocks.sendToThread).toHaveBeenCalledWith("thread-paused", expect.anything(), []);
@@ -697,7 +705,7 @@ describe("PrinterManager public seam", () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
 
-    await mocks.clients[0].emitStatus(status(PrintState.FAILED, 25), status(PrintState.UNKNOWN, 0));
+    await getClient(0).emitStatus(status(PrintState.FAILED, 25), status(PrintState.UNKNOWN, 0));
 
     expect(mocks.printCancelled).toHaveBeenCalledOnce();
     expect(mocks.printFailed).not.toHaveBeenCalled();

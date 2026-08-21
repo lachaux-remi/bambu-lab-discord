@@ -246,6 +246,7 @@ installing them automatically.
 
 - Target: ESNext
 - Strict mode enabled
+- `noUncheckedIndexedAccess` is enabled; validate external or persisted indexes and prove internal indexes before use.
 - `tsconfig.json` drives production builds with NodeNext resolution (`src/**/*.ts` → `dist/`)
 - `tsconfig.test.json` extends production settings to check `src`, `tests`, and `vitest.config.mts` without emitting files
 - Uses `tsx` for development, `tsc` for production builds
