@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LightMode, LightNode, MessageCommand, PrintState } from "../src/enums";
 import BambuLabClient from "../src/services/bambu-lab";
 import type { PrinterConfig } from "../src/types/printer-config";
+import type { Status } from "../src/types/printer-status";
 
-const { connectMock, loggerMock, takeScreenshotMock } = vi.hoisted(() => ({
+const { connectMock, extractProjectImageMock, loggerMock, takeScreenshotMock } = vi.hoisted(() => ({
   connectMock: vi.fn(),
+  extractProjectImageMock: vi.fn(),
   loggerMock: {
     debug: vi.fn(),
     error: vi.fn(),
@@ -18,6 +20,7 @@ const { connectMock, loggerMock, takeScreenshotMock } = vi.hoisted(() => ({
 
 vi.mock("mqtt", () => ({ connect: connectMock }));
 vi.mock("../src/libs/logger", () => ({ getLogger: () => loggerMock }));
+vi.mock("../src/libs/project", () => ({ extractProjectImage: extractProjectImageMock }));
 vi.mock("../src/libs/rtc", () => ({ takeScreenshot: takeScreenshotMock }));
 
 type MqttCallback = (error?: Error) => void;
@@ -53,6 +56,8 @@ describe("BambuLabClient MQTT lifecycle", () => {
     mqttClient = new FakeMqttClient();
     vi.clearAllMocks();
     connectMock.mockReturnValue(mqttClient);
+    extractProjectImageMock.mockReset();
+    extractProjectImageMock.mockResolvedValue(null);
     takeScreenshotMock.mockReset();
     takeScreenshotMock.mockResolvedValue(null);
     client = new BambuLabClient(config);
@@ -561,6 +566,214 @@ describe("BambuLabClient MQTT lifecycle", () => {
 
     releaseFirstListener?.();
     await vi.waitFor(() => expect(observedProgress).toEqual([10, 20]));
+  });
+
+  it("rejects oversized MQTT payloads before processing them", async () => {
+    const listener = vi.fn();
+    client.on("status", listener);
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+
+    const payload = Buffer.from(
+      JSON.stringify({
+        print: {
+          command: MessageCommand.PROJECT_FILE,
+          subtask_name: "x".repeat(1024 * 1024)
+        }
+      })
+    );
+    mqttClient.emit("message", "device/SERIAL-1/report", payload);
+    await new Promise(resolve => setImmediate(resolve));
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ payloadLength: payload.byteLength }),
+      "MQTT message exceeds the maximum allowed size"
+    );
+  });
+
+  it("bounds retained MQTT strings and arrays", async () => {
+    const statuses: Status[] = [];
+    client.on("status", status => statuses.push({ ...status }));
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+
+    const oversizedString = "x".repeat(4097);
+    const emitReport = (print: unknown): void => {
+      mqttClient.emit("message", "device/SERIAL-1/report", Buffer.from(JSON.stringify({ print })));
+    };
+    emitReport({
+      command: MessageCommand.PROJECT_FILE,
+      subtask_id: oversizedString,
+      task_id: oversizedString,
+      model_id: oversizedString,
+      gcode_file: oversizedString,
+      plate_idx: "1".repeat(4097),
+      subtask_name: oversizedString,
+      url: `https://example.com/${oversizedString}`,
+      ams_mapping: Array.from({ length: 65 }, (_, index) => index)
+    });
+    emitReport({
+      command: MessageCommand.PUSH_STATUS,
+      subtask_name: oversizedString,
+      lights_report: Array.from({ length: 65 }, () => ({ node: LightNode.CHAMBER, mode: LightMode.ON }))
+    });
+
+    await vi.waitFor(() => expect(statuses).toHaveLength(1));
+    expect(statuses[0]).toEqual({
+      state: PrintState.PREPARE,
+      currentLayer: 0,
+      maxLayers: 0,
+      progressPercent: 0,
+      remainingTime: 0,
+      startedAt: expect.any(Number),
+      cancellationRequested: false
+    });
+    expect(client.isChamberLightOn()).toBe(false);
+    expect(extractProjectImageMock).not.toHaveBeenCalled();
+  });
+
+  it("coalesces a status burst behind a suspended project and continues after its failure", async () => {
+    const extraction = Promise.withResolvers<Buffer | null>();
+    extractProjectImageMock.mockReturnValue(extraction.promise);
+    const statuses: Status[] = [];
+    client.on("status", status => statuses.push({ ...status }));
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+
+    const emitReport = (print: unknown): void => {
+      mqttClient.emit("message", "device/SERIAL-1/report", Buffer.from(JSON.stringify({ print })));
+    };
+    emitReport({
+      command: MessageCommand.PROJECT_FILE,
+      url: "https://example.com/project.3mf",
+      plate_idx: 1
+    });
+    await vi.waitFor(() => expect(extractProjectImageMock).toHaveBeenCalledOnce());
+
+    for (let index = 0; index < 2000; index += 1) {
+      emitReport({
+        command: MessageCommand.PUSH_STATUS,
+        gcode_state: PrintState.RUNNING,
+        layer_num: index,
+        mc_percent: index % 100
+      });
+    }
+    extraction.reject(new Error("project extraction failed"));
+
+    await vi.waitFor(() => expect(statuses.at(-1)?.currentLayer).toBe(1999));
+    expect(statuses).toEqual([
+      expect.objectContaining({
+        state: PrintState.RUNNING,
+        currentLayer: 1999,
+        progressPercent: 99
+      })
+    ]);
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.objectContaining({ message: "project extraction failed" }) }),
+      "Failed to process MQTT message"
+    );
+  });
+
+  it("preserves functional state transitions while coalescing redundant status progress", async () => {
+    const extraction = Promise.withResolvers<Buffer | null>();
+    extractProjectImageMock.mockReturnValue(extraction.promise);
+    const states: PrintState[] = [];
+    const progress: number[] = [];
+    client.on("status", status => {
+      states.push(status.state!);
+      progress.push(status.progressPercent!);
+    });
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+
+    const emitStatus = (state: PrintState, progressPercent: number): void => {
+      mqttClient.emit(
+        "message",
+        "device/SERIAL-1/report",
+        Buffer.from(
+          JSON.stringify({
+            print: {
+              command: MessageCommand.PUSH_STATUS,
+              gcode_state: state,
+              mc_percent: progressPercent
+            }
+          })
+        )
+      );
+    };
+    mqttClient.emit(
+      "message",
+      "device/SERIAL-1/report",
+      Buffer.from(
+        JSON.stringify({
+          print: {
+            command: MessageCommand.PROJECT_FILE,
+            url: "https://example.com/project.3mf",
+            plate_idx: 1
+          }
+        })
+      )
+    );
+    await vi.waitFor(() => expect(extractProjectImageMock).toHaveBeenCalledOnce());
+
+    emitStatus(PrintState.RUNNING, 10);
+    emitStatus(PrintState.RUNNING, 20);
+    emitStatus(PrintState.PAUSE, 20);
+    emitStatus(PrintState.RUNNING, 30);
+    emitStatus(PrintState.FINISH, 100);
+    extraction.resolve(null);
+
+    await vi.waitFor(() => expect(states.at(-1)).toBe(PrintState.FINISH));
+    expect(states).toEqual([
+      PrintState.PREPARE,
+      PrintState.RUNNING,
+      PrintState.PAUSE,
+      PrintState.RUNNING,
+      PrintState.FINISH
+    ]);
+    expect(progress).toEqual([0, 20, 20, 30, 100]);
+  });
+
+  it("bounds non-coalescible backlog and shuts down while project extraction is suspended", async () => {
+    const extraction = Promise.withResolvers<Buffer | null>();
+    extractProjectImageMock.mockReturnValue(extraction.promise);
+    const listener = vi.fn();
+    client.on("status", listener);
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+
+    const emitReport = (print: unknown): void => {
+      mqttClient.emit("message", "device/SERIAL-1/report", Buffer.from(JSON.stringify({ print })));
+    };
+    emitReport({
+      command: MessageCommand.PROJECT_FILE,
+      url: "https://example.com/project.3mf",
+      plate_idx: 1
+    });
+    await vi.waitFor(() => expect(extractProjectImageMock).toHaveBeenCalledOnce());
+    for (let index = 0; index < 100; index += 1) {
+      emitReport({ command: MessageCommand.PROJECT_FILE, subtask_name: `queued-project-${index}` });
+    }
+
+    const disconnect = client.disconnect();
+    try {
+      await vi.waitFor(() => expect(mqttClient.endAsync).toHaveBeenCalledOnce(), { timeout: 250 });
+    } finally {
+      extraction.resolve(null);
+      await disconnect;
+    }
+
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ pendingMessages: expect.any(Number) }),
+      "MQTT message backlog is full"
+    );
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it("sanitizes malformed print fields and continues the message queue", async () => {

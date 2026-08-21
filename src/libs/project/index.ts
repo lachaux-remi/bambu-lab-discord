@@ -6,6 +6,7 @@ import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
 import type { LookupFunction } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
+import { crc32, inflateRawSync } from "node:zlib";
 
 import type { StringNumber } from "../../types/general";
 import { getLogger } from "../logger";
@@ -19,6 +20,8 @@ const MAX_IMAGE_SIZE = 15 * 1024 * 1024;
 const DNS_LOOKUP_TIMEOUT_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const ZIP_METHOD_STORE = 0;
+const ZIP_METHOD_DEFLATE = 8;
 
 class ProjectDownloadRejectedError extends Error {}
 
@@ -211,6 +214,41 @@ const readProjectBody = async (response: IncomingMessage): Promise<Buffer> => {
   return Buffer.concat(chunks, totalSize);
 };
 
+const extractBoundedImage = (entry: AdmZip.IZipEntry): Buffer => {
+  if (entry.header.encrypted) {
+    throw new Error("Encrypted plate images are not supported");
+  }
+
+  const compressedData = entry.getCompressedData();
+  if (compressedData.length !== entry.header.compressedSize) {
+    throw new Error("Plate image compressed size does not match its ZIP entry");
+  }
+
+  let imageBuffer: Buffer;
+  if (entry.header.method === ZIP_METHOD_STORE) {
+    if (entry.header.compressedSize !== entry.header.size || compressedData.length > MAX_IMAGE_SIZE) {
+      throw new Error("Stored plate image has an invalid size");
+    }
+    imageBuffer = compressedData;
+  } else if (entry.header.method === ZIP_METHOD_DEFLATE) {
+    imageBuffer = inflateRawSync(compressedData, { maxOutputLength: MAX_IMAGE_SIZE });
+  } else {
+    throw new Error("Plate image uses an unsupported ZIP compression method");
+  }
+
+  if (imageBuffer.length !== entry.header.size) {
+    throw new Error("Plate image size does not match its ZIP entry");
+  }
+  if (crc32(imageBuffer) !== entry.header.crc) {
+    throw new Error("Plate image CRC does not match its ZIP entry");
+  }
+  if (!imageBuffer.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+    throw new Error("Plate image is not a PNG");
+  }
+
+  return imageBuffer;
+};
+
 export interface ExtractProjectImageData {
   url: string;
   plate: StringNumber;
@@ -242,6 +280,7 @@ export const extractProjectImage = async (
     }
   })();
 
+  let projectBuffer: Buffer;
   try {
     const response = await fetchProjectFile(url);
     const status = response.statusCode ?? 0;
@@ -257,31 +296,7 @@ export const extractProjectImage = async (
       return extractProjectImage(data, attempt + 1);
     }
 
-    const projectBuffer = await readProjectBody(response);
-
-    // Extraire l'image de la plaque depuis le fichier 3mf (qui est un zip)
-    const projectZip = new AdmZip(projectBuffer);
-    const plateEntry = projectZip.getEntry(`Metadata/plate_${plate}.png`);
-
-    if (!plateEntry) {
-      logger.error({ plate }, "Plate image not found in project file");
-      return null;
-    }
-
-    if (plateEntry.header.size > MAX_IMAGE_SIZE) {
-      logger.error({ plate, size: plateEntry.header.size }, "Plate image exceeds the maximum allowed size");
-      return null;
-    }
-
-    const imageBuffer = plateEntry.getData();
-    if (imageBuffer.length > MAX_IMAGE_SIZE || !imageBuffer.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
-      logger.error({ plate, size: imageBuffer.length }, "Plate image is too large or is not a valid PNG");
-      return null;
-    }
-
-    logger.debug({ plate, size: imageBuffer.length }, "Project image extracted");
-
-    return imageBuffer;
+    projectBuffer = await readProjectBody(response);
   } catch (error) {
     if (error instanceof ProjectDownloadRejectedError) {
       logger.error({ error, url: logUrl }, "Project file request rejected");
@@ -291,5 +306,22 @@ export const extractProjectImage = async (
     logger.warn({ error, url: logUrl }, "Error fetching project file, retrying...");
     await delay(1000);
     return extractProjectImage(data, attempt + 1);
+  }
+
+  try {
+    const projectZip = new AdmZip(projectBuffer);
+    const plateEntry = projectZip.getEntry(`Metadata/plate_${plate}.png`);
+
+    if (!plateEntry) {
+      logger.error({ plate }, "Plate image not found in project file");
+      return null;
+    }
+
+    const imageBuffer = extractBoundedImage(plateEntry);
+    logger.debug({ plate, size: imageBuffer.length }, "Project image extracted");
+    return imageBuffer;
+  } catch (error) {
+    logger.error({ error, plate }, "Project file contains an invalid plate image");
+    return null;
   }
 };
