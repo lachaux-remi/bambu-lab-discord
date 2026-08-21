@@ -35,6 +35,7 @@ describe("RTC stream", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it("extracts only a complete JPEG frame", () => {
@@ -73,6 +74,53 @@ describe("RTC stream", () => {
     expect(socket.destroy).toHaveBeenCalledOnce();
   });
 
+  it("recognizes JPEG markers split between chunks", async () => {
+    const result = takeScreenshotFromBambuStream("192.0.2.1", "code", "SERIAL-1");
+
+    socket.emit("data", Buffer.from([0x00, 0xff]));
+    socket.emit("data", Buffer.from([0xd8, 0x12, 0x34, 0xff]));
+    socket.emit("data", Buffer.from([0xd9, 0x99]));
+
+    await expect(result).resolves.toEqual(Buffer.from([0xff, 0xd8, 0x12, 0x34, 0xff, 0xd9]));
+    expect(socket.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("processes thousands of tiny chunks with one final concatenation", async () => {
+    const jpeg = Buffer.alloc(5_004, 0x12);
+    jpeg[0] = 0xff;
+    jpeg[1] = 0xd8;
+    jpeg[jpeg.length - 2] = 0xff;
+    jpeg[jpeg.length - 1] = 0xd9;
+    const concatSpy = vi.spyOn(Buffer, "concat");
+    const result = takeScreenshotFromBambuStream("192.0.2.1", "code", "SERIAL-1");
+
+    for (let index = 0; index < jpeg.length; index += 1) {
+      socket.emit("data", jpeg.subarray(index, index + 1));
+    }
+
+    await expect(result).resolves.toEqual(jpeg);
+    expect(concatSpy).toHaveBeenCalledOnce();
+  });
+
+  it("rejects the chunk that exceeds the stream limit before concatenating", async () => {
+    const maximumFrame = Buffer.alloc(20 * 1024 * 1024, 0x12);
+    maximumFrame[0] = 0xff;
+    maximumFrame[1] = 0xd8;
+    const concatSpy = vi.spyOn(Buffer, "concat");
+    const result = takeScreenshotFromBambuStream("192.0.2.1", "code", "SERIAL-1");
+
+    socket.emit("data", maximumFrame);
+    socket.emit("data", Buffer.from([0x00]));
+
+    await expect(result).resolves.toBeNull();
+    expect(concatSpy).not.toHaveBeenCalled();
+    expect(socket.destroy).toHaveBeenCalledOnce();
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      { ip: "192.0.2.1", bufferSize: 20 * 1024 * 1024 + 1 },
+      "Bambu stream frame exceeded maximum size"
+    );
+  });
+
   it("settles with null when the peer closes before a complete frame", async () => {
     const result = takeScreenshotFromBambuStream("192.0.2.1", "code", "SERIAL-1");
     socket.emit("close");
@@ -82,12 +130,19 @@ describe("RTC stream", () => {
 
   it("destroys the socket and settles on timeout", async () => {
     vi.useFakeTimers();
+    const concatSpy = vi.spyOn(Buffer, "concat");
     const result = takeScreenshotFromBambuStream("192.0.2.1", "code", "SERIAL-1");
+    socket.emit("data", Buffer.from([0xff, 0xd8, 0x12, 0x34]));
 
     await vi.advanceTimersByTimeAsync(15_000);
 
     await expect(result).resolves.toBeNull();
+    expect(concatSpy).not.toHaveBeenCalled();
     expect(socket.destroy).toHaveBeenCalledOnce();
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      { ip: "192.0.2.1", port: 6000, bufferSize: 4 },
+      "Bambu stream timeout"
+    );
   });
 
   it("settles with null on socket errors", async () => {

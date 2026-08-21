@@ -11,6 +11,66 @@ const JPEG_START = Buffer.from([0xff, 0xd8]);
 const JPEG_END = Buffer.from([0xff, 0xd9]);
 const MAX_STREAM_BUFFER_SIZE = 20 * 1024 * 1024;
 
+class IncrementalJpegParser {
+  private readonly frameChunks: Buffer[] = [];
+  private frameSize = 0;
+  private previousByteWasMarkerPrefix = false;
+  private started = false;
+
+  public receivedSize = 0;
+  public limitExceeded = false;
+
+  public push(chunk: Buffer): Buffer | null {
+    if (chunk.length > MAX_STREAM_BUFFER_SIZE - this.receivedSize) {
+      this.limitExceeded = true;
+      return null;
+    }
+
+    this.receivedSize += chunk.length;
+    let frameChunkStart = this.started ? 0 : -1;
+
+    for (let index = 0; index < chunk.length; index += 1) {
+      const byte = chunk[index]!;
+
+      if (!this.started) {
+        if (this.previousByteWasMarkerPrefix && byte === JPEG_START[1]) {
+          this.started = true;
+          if (index === 0) {
+            this.frameChunks.push(JPEG_START);
+            this.frameSize += JPEG_START.length;
+            frameChunkStart = 1;
+          } else {
+            frameChunkStart = index - 1;
+          }
+        }
+
+        this.previousByteWasMarkerPrefix = byte === JPEG_START[0];
+        continue;
+      }
+
+      if (this.previousByteWasMarkerPrefix && byte === JPEG_END[1]) {
+        if (frameChunkStart >= 0) {
+          const frameChunk = chunk.subarray(frameChunkStart, index + 1);
+          this.frameChunks.push(frameChunk);
+          this.frameSize += frameChunk.length;
+        }
+
+        return Buffer.concat(this.frameChunks, this.frameSize);
+      }
+
+      this.previousByteWasMarkerPrefix = byte === JPEG_END[0];
+    }
+
+    if (frameChunkStart >= 0 && frameChunkStart < chunk.length) {
+      const frameChunk = chunk.subarray(frameChunkStart);
+      this.frameChunks.push(frameChunk);
+      this.frameSize += frameChunk.length;
+    }
+
+    return null;
+  }
+}
+
 /** Extract the first complete JPEG frame from a camera stream buffer. */
 export const extractJpegFrame = (buffer: Buffer): Buffer | null => {
   const startIndex = buffer.indexOf(JPEG_START);
@@ -71,7 +131,7 @@ export const takeScreenshotFromBambuStream = (
 ): Promise<Buffer | null> => {
   return new Promise(resolve => {
     let socket: tls.TLSSocket | null = null;
-    let buffer = Buffer.alloc(0);
+    const parser = new IncrementalJpegParser();
     let settled = false;
 
     const finish = (result: Buffer | null): void => {
@@ -95,7 +155,7 @@ export const takeScreenshotFromBambuStream = (
     };
 
     const timeout = setTimeout(() => {
-      logger.debug({ ip, port, bufferSize: buffer.length }, "Bambu stream timeout");
+      logger.debug({ ip, port, bufferSize: parser.receivedSize }, "Bambu stream timeout");
       finish(null);
     }, 15000);
 
@@ -114,14 +174,16 @@ export const takeScreenshotFromBambuStream = (
       );
 
       socket.on("data", (chunk: Buffer) => {
-        buffer = Buffer.concat([buffer, chunk]);
-        if (buffer.length > MAX_STREAM_BUFFER_SIZE) {
-          logger.debug({ ip, bufferSize: buffer.length }, "Bambu stream frame exceeded maximum size");
+        const image = parser.push(chunk);
+        if (parser.limitExceeded) {
+          logger.debug(
+            { ip, bufferSize: parser.receivedSize + chunk.length },
+            "Bambu stream frame exceeded maximum size"
+          );
           finish(null);
           return;
         }
 
-        const image = extractJpegFrame(buffer);
         if (image) {
           logger.debug({ ip, size: image.length }, "Captured frame from Bambu stream");
           finish(image);
