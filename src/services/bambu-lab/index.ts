@@ -8,6 +8,7 @@ import { getLogger } from "../../libs/logger";
 import { takeScreenshot } from "../../libs/rtc";
 import type { ClientEvents } from "../../types/client-events";
 import type { PrinterConfig } from "../../types/printer-config";
+import type { PrintMessageCommand } from "../../types/printer-messages";
 import PrinterStatus from "../printer-status";
 import { parsePrintMessage } from "./print-message-parser";
 
@@ -19,6 +20,22 @@ const MQTT_CONNECT_TIMEOUT_MS =
   configuredConnectTimeoutMs <= 300_000
     ? configuredConnectTimeoutMs
     : 30_000;
+const MAX_MQTT_PAYLOAD_SIZE = 1024 * 1024;
+const MAX_PENDING_MQTT_MESSAGES = 32;
+const MAX_LOGGED_MQTT_KEYS = 16;
+
+const sampleObjectKeys = (value: Record<string, unknown>): string[] => {
+  const keys: string[] = [];
+  for (const key in value) {
+    if (Object.hasOwn(value, key)) {
+      keys.push(key);
+      if (keys.length === MAX_LOGGED_MQTT_KEYS) {
+        break;
+      }
+    }
+  }
+  return keys;
+};
 
 interface ConnectionAttempt {
   promise: Promise<void>;
@@ -52,7 +69,11 @@ export default class BambuLabClient extends EventEmitter {
   private stopping: boolean = false;
   private sessionReady: boolean = false;
   private chamberLightOn: boolean = false;
-  private messageQueue: Promise<void> = Promise.resolve();
+  private readonly pendingMessages: PrintMessageCommand[] = [];
+  private messageProcessor?: Promise<void>;
+  private messageAbortController = new AbortController();
+  private backlogWarningLogged: boolean = false;
+  private oversizedPayloadWarningLogged: boolean = false;
   private screenshotQueue: Promise<void> = Promise.resolve();
 
   public constructor(
@@ -116,6 +137,11 @@ export default class BambuLabClient extends EventEmitter {
     }
 
     this.stopping = false;
+    this.backlogWarningLogged = false;
+    this.oversizedPayloadWarningLogged = false;
+    if (this.messageAbortController.signal.aborted) {
+      this.messageAbortController = new AbortController();
+    }
 
     let cancelConnection!: ConnectionAttempt["cancel"];
     const promise = new Promise<void>((resolve, reject) => {
@@ -245,12 +271,25 @@ export default class BambuLabClient extends EventEmitter {
           return;
         }
 
-        const packet = payload.toString();
-        this.messageQueue = this.messageQueue
-          .then(() => this.onMessage(packet))
-          .catch(error => {
-            logger.error({ printer: this.config.name, error }, "Failed to process MQTT message");
-          });
+        if (payload.byteLength > MAX_MQTT_PAYLOAD_SIZE) {
+          if (!this.oversizedPayloadWarningLogged) {
+            this.oversizedPayloadWarningLogged = true;
+            logger.warn(
+              {
+                printer: this.config.name,
+                payloadLength: payload.byteLength,
+                maximumPayloadLength: MAX_MQTT_PAYLOAD_SIZE
+              },
+              "MQTT message exceeds the maximum allowed size"
+            );
+          }
+          return;
+        }
+
+        const message = this.parseMessage(payload.toString());
+        if (message) {
+          this.enqueueMessage(message);
+        }
       });
       mqttClient.on("error", error => {
         if (this.stopping || connectionState === MqttConnectionState.STOPPED || this.mqttClient !== mqttClient) {
@@ -380,7 +419,10 @@ export default class BambuLabClient extends EventEmitter {
       return this.disconnectPromise;
     }
 
-    const shutdown = Promise.all([this.messageQueue, this.screenshotQueue]).then(async () => {
+    this.pendingMessages.length = 0;
+    this.messageAbortController.abort();
+    const messageProcessor = this.messageProcessor ?? Promise.resolve();
+    const shutdown = Promise.all([messageProcessor, this.screenshotQueue]).then(async () => {
       if (this.mqttClient === mqttClient) {
         this.mqttClient = undefined;
       }
@@ -479,7 +521,7 @@ export default class BambuLabClient extends EventEmitter {
     return this.mqttClient?.connected ?? false;
   }
 
-  protected async onMessage(packet: string): Promise<void> {
+  private parseMessage(packet: string): PrintMessageCommand | undefined {
     let parsedData: unknown;
     try {
       parsedData = JSON.parse(packet);
@@ -493,26 +535,103 @@ export default class BambuLabClient extends EventEmitter {
       return;
     }
 
-    const key = Object.keys(parsedData)[0];
+    const keys = sampleObjectKeys(parsedData as Record<string, unknown>);
 
-    logger.debug({ key }, "Received message");
+    logger.debug({ key: keys[0] }, "Received message");
 
     const message = parsePrintMessage(parsedData);
     if (!message) {
-      logger.debug({ keys: Object.keys(parsedData) }, "Message not recognized as print message");
+      logger.debug({ keys }, "Message not recognized as print message");
       return;
     }
 
+    return message.print;
+  }
+
+  private enqueueMessage(message: PrintMessageCommand): void {
+    const lastIndex = this.pendingMessages.length - 1;
+    const previousMessage = this.pendingMessages[lastIndex];
+    const coalescesPreviousStatus =
+      message.command === MessageCommand.PUSH_STATUS &&
+      previousMessage?.command === MessageCommand.PUSH_STATUS &&
+      (message.gcode_state === undefined ||
+        previousMessage.gcode_state === undefined ||
+        message.gcode_state === previousMessage.gcode_state ||
+        this.pendingMessages.length >= MAX_PENDING_MQTT_MESSAGES);
+    if (coalescesPreviousStatus) {
+      this.pendingMessages[lastIndex] = { ...previousMessage, ...message };
+      return;
+    }
+
+    if (this.pendingMessages.length >= MAX_PENDING_MQTT_MESSAGES) {
+      if (!this.backlogWarningLogged) {
+        this.backlogWarningLogged = true;
+        logger.warn(
+          {
+            printer: this.config.name,
+            pendingMessages: this.pendingMessages.length,
+            maximumPendingMessages: MAX_PENDING_MQTT_MESSAGES
+          },
+          "MQTT message backlog is full"
+        );
+      }
+      return;
+    }
+
+    this.pendingMessages.push(message);
+    this.startMessageProcessor();
+  }
+
+  private startMessageProcessor(): void {
+    if (this.messageProcessor || this.stopping) {
+      return;
+    }
+
+    const trackedProcessor = this.processPendingMessages().finally(() => {
+      if (this.messageProcessor === trackedProcessor) {
+        this.messageProcessor = undefined;
+        if (this.pendingMessages.length > 0 && !this.stopping) {
+          this.startMessageProcessor();
+        }
+      }
+    });
+    this.messageProcessor = trackedProcessor;
+  }
+
+  private async processPendingMessages(): Promise<void> {
+    while (!this.stopping) {
+      const message = this.pendingMessages.shift();
+      if (!message) {
+        return;
+      }
+      this.backlogWarningLogged = false;
+
+      try {
+        await this.processMessage(message, this.messageAbortController.signal);
+      } catch (error) {
+        logger.error({ printer: this.config.name, error }, "Failed to process MQTT message");
+      }
+    }
+  }
+
+  private async processMessage(message: PrintMessageCommand, signal?: AbortSignal): Promise<void> {
     // Track chamber light state from lights_report
-    if (message.print.command === MessageCommand.PUSH_STATUS && message.print.lights_report) {
-      const chamberLight = message.print.lights_report.find(light => light.node === LightNode.CHAMBER);
+    if (message.command === MessageCommand.PUSH_STATUS && message.lights_report) {
+      const chamberLight = message.lights_report.find(light => light.node === LightNode.CHAMBER);
       if (chamberLight) {
         this.chamberLightOn = chamberLight.mode === LightMode.ON;
         logger.debug({ printer: this.config.name, chamberLightOn: this.chamberLightOn }, "Chamber light state updated");
       }
     }
 
-    logger.debug({ command: message.print.command }, "Processing print message");
-    await this.printerStatus?.onUpdate(message.print);
+    logger.debug({ command: message.command }, "Processing print message");
+    await this.printerStatus?.onUpdate(message, signal);
+  }
+
+  protected async onMessage(packet: string): Promise<void> {
+    const message = this.parseMessage(packet);
+    if (message) {
+      await this.processMessage(message);
+    }
   }
 }
