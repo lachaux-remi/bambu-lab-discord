@@ -1,13 +1,13 @@
 {
   "version": 1,
   "name": "bounded-burst",
-  "description": "A 256-message transition burst exercises the bounded/coalesced BambuLabClient backlog.",
+  "description": "A 64-message transition burst exercises twice the 32-entry BambuLabClient backlog bound.",
   "steps": [
     { "action": "project", "payload": { "model_id": "burst", "subtask_name": "Rafale bornée" } },
     { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 10 } },
     {
       "action": "burst",
-      "count": 256,
+      "count": 64,
       "messages": [
         { "action": "status", "state": "PAUSE", "payload": { "mc_percent": 50 } },
         { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 50 } }
