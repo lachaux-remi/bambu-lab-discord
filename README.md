@@ -12,7 +12,7 @@ Ce bot se connecte à vos imprimantes Bambu Lab via MQTT et envoie des notificat
 - Fin d'impression (succès ou échec)
 - Arrêt d'impression
 
-Les notifications incluent des captures d'écran en temps réel et des images de prévisualisation du projet.
+Les notifications concernées incluent des captures d'écran et des images de prévisualisation du projet.
 
 ## Fonctionnalités
 
@@ -24,11 +24,12 @@ Les notifications incluent des captures d'écran en temps réel et des images de
 - 🖼️ Extraction et affichage des images de prévisualisation du projet
 - 🔔 Notifications Discord riches avec embeds dans des forum threads
 - 🔄 Reconnexion automatique en cas de perte de connexion
+- 📨 File d'envoi persistante pour reprendre les notifications Discord après une erreur ou un redémarrage
 - ⚙️ Configuration via commandes Discord slash
 
 ## Prérequis
 
-- Node.js 24.x et pnpm
+- Node.js 24.x et pnpm 11 (`package.json` fixe actuellement pnpm 11.0.9)
 - Une ou plusieurs imprimantes Bambu Lab sur votre réseau local
 - Un bot Discord avec les permissions appropriées
 
@@ -37,10 +38,10 @@ Les notifications incluent des captures d'écran en temps réel et des images de
 Si le bot n'est pas exécuté localement (ex: serveur distant, Docker sur un autre réseau), assurez-vous que les ports
 suivants sont accessibles vers vos imprimantes :
 
-| Port | Protocole | Utilisation                                            |
-|------|-----------|--------------------------------------------------------|
-| 8883 | TCP/TLS   | MQTT - Communication avec l'imprimante (configurable)  |
-| 6000 | TCP/TLS   | Caméra - Captures d'écran (configurable via rtc_port)  |
+| Port | Protocole | Utilisation                                           |
+| ---- | --------- | ----------------------------------------------------- |
+| 8883 | TCP/TLS   | MQTT - Communication avec l'imprimante (configurable) |
+| 6000 | TCP/TLS   | Caméra - Captures d'écran (configurable via rtc_port) |
 
 ## Installation
 
@@ -67,17 +68,21 @@ DISCORD_BOT_TOKEN=votre_token_bot
 # Génération : openssl rand -base64 32
 CONFIG_ENCRYPTION_KEY=votre_cle_base64_de_32_octets
 
-# Personnalisation des notifications (optionnel)
+# Personnalisation des notifications (optionnel, valeurs par défaut ci-dessous)
+# Pourcentage : 1 à 100
 NOTIFICATION_PERCENT=5
 NOTIFICATION_FOOTER_TEXT=Bambu Lab Discord
 NOTIFICATION_FOOTER_ICON=
 NOTIFICATION_COLOR=#24a543
 
 # Délais opérationnels (optionnel)
+# Résumé des erreurs MQTT répétées : 1 à 1440 minutes
 ERROR_LOG_COOLDOWN_MINUTES=1
 # Délai de connexion MQTT en ms (1000 à 300000, défaut 30000 si invalide)
 MQTT_CONNECT_TIMEOUT_MS=30000
+# Extinction après une impression : 0 à 1440 minutes
 CHAMBER_LIGHT_OFF_DELAY_MINUTES=5
+# Attente avant une capture après allumage : 0 à 60000 ms
 CHAMBER_LIGHT_WARMUP_MS=1500
 
 # Validation des certificats MQTT et caméra (laisser désactivé)
@@ -105,33 +110,37 @@ par `ERROR_LOG_COOLDOWN_MINUTES` (minimum et défaut : 1 minute). La reconnexion
 2. Créez un bot et copiez le token
 3. Activez les intents nécessaires : `GUILDS`, `GUILD_MESSAGES`
 4. Invitez le bot sur votre serveur avec les permissions :
-  - Voir les channels
-  - Envoyer des messages
-  - Créer des threads publics
-  - Gérer les threads
-  - Gérer les tags (pour les forums)
+
+- Voir les channels
+- Envoyer des messages, y compris dans les threads
+- Créer des threads publics
+- Gérer les threads
+- Intégrer des liens et joindre des fichiers
+- Gérer les channels (pour réconcilier les tags des forums)
 
 ## Commandes Slash
 
 Une fois le bot démarré, utilisez ces commandes Discord :
 
-| Commande                                                    | Description                            |
-|-------------------------------------------------------------|----------------------------------------|
-| `/printer add <name> <ip> <serial> <access_code> <channel>` | Ajouter une imprimante                 |
-| `/printer remove <name>`                                    | Supprimer une imprimante               |
-| `/printer list`                                             | Lister les imprimantes configurées     |
-| `/printer status <name>`                                    | Afficher l'état détaillé               |
-| `/printer reconnect <name>`                                 | Forcer une reconnexion immédiate       |
-| `/printer edit <name> [options]`                            | Modifier et activer/désactiver         |
-| `/printer screenshot <name>`                                | Publier une capture caméra de test     |
+| Commande                                                                      | Description                        |
+| ----------------------------------------------------------------------------- | ---------------------------------- |
+| `/printer add <name> <ip> <serial> <access_code> <channel> [port] [rtc_port]` | Ajouter et démarrer une imprimante |
+| `/printer remove <name>`                                                      | Supprimer une imprimante           |
+| `/printer list`                                                               | Lister les imprimantes configurées |
+| `/printer status <name>`                                                      | Afficher l'état détaillé           |
+| `/printer reconnect <name>`                                                   | Forcer une reconnexion immédiate   |
+| `/printer edit <name> [options]`                                              | Modifier et activer/désactiver     |
+| `/printer screenshot <name>`                                                  | Publier une capture caméra de test |
 
-`/printer edit` permet notamment de modifier les ports MQTT/RTC et d'activer ou désactiver immédiatement l'imprimante.
-`/printer reconnect` redémarre le client MQTT d'une imprimante activée sans modifier sa configuration.
+Toutes les commandes nécessitent la permission Discord **Gérer le serveur**. `/printer edit` peut modifier le nom,
+l'adresse IP, le numéro de série, le code d'accès, le forum, les ports MQTT/RTC et l'état activé. Les changements réseau
+d'une imprimante active sont appliqués immédiatement par un redémarrage de sa connexion. `/printer reconnect` redémarre
+le client MQTT d'une imprimante activée sans modifier sa configuration.
 
 ### Exemple d'ajout d'imprimante
 
 ```
-/printer add name:P1S Bureau ip:192.168.1.100 serial:01S00A000000000 access_code:12345678 channel:#impressions-3d
+/printer add name:Imprimante Bureau ip:192.0.2.10 serial:VOTRE_NUMERO_DE_SERIE access_code:VOTRE_CODE_D_ACCES channel:#impressions-3d
 ```
 
 ## Captures d'écran (RTC)
@@ -142,16 +151,31 @@ Le bot capture des screenshots directement depuis vos imprimantes via le protoco
 - Pas de service externe nécessaire (ffmpeg, go2rtc, etc.)
 - Utilise l'IP comme destination et le serial déjà configuré comme identité TLS
 
+Pour les notifications automatiques et `/printer screenshot`, les captures d'une même imprimante sont sérialisées. Si
+la lumière de la chambre est éteinte, le bot l'allume, attend `CHAMBER_LIGHT_WARMUP_MS`, puis restaure son état initial,
+même en cas d'échec de la capture. Après la fin d'une impression, il programme son extinction au bout de
+`CHAMBER_LIGHT_OFF_DELAY_MINUTES`; une nouvelle impression annule ce délai.
+
 Pour tester les captures :
 
 ```bash
 pnpm run debug:rtc
 ```
 
+L'outil teste toutes les imprimantes configurées. Il peut aussi cibler directement une imprimante avec
+`PRINTER_ADDRESS`, `PRINTER_ACCESS_CODE`, `PRINTER_SERIAL_NUMBER` et, si nécessaire, `PRINTER_RTC_PORT`. Chaque réussite
+écrit un fichier brut `rtc-debug-<timestamp>.jpg` dans le répertoire courant, avec des permissions limitées au
+propriétaire. Ce fichier est ignoré par Git, mais peut montrer l'intérieur de l'imprimante : vérifiez-le avant de le
+partager. Contrairement aux captures pilotées par le bot, cet outil RTC direct ne commande pas la lumière.
+
 Depuis Discord, `/printer screenshot <name>` capture une image réelle et crée une notification publique de test dans
 le forum configuré pour l'imprimante. Cette commande nécessite la permission **Gérer le serveur** ou **Administrateur**.
 
 ## Capture de diagnostic MQTT
+
+Renseignez `PRINTER_ADDRESS`, `PRINTER_ACCESS_CODE` et `PRINTER_SERIAL_NUMBER` dans `.env`; `PRINTER_PORT` est optionnel
+et vaut 8883 par défaut. Ces variables sont réservées aux outils de diagnostic et ne remplacent pas la configuration
+multi-imprimantes créée avec les commandes slash.
 
 ```bash
 pnpm run debug:mqtt
@@ -176,6 +200,9 @@ Le filtre conserve volontairement les autres champs MQTT afin que la capture res
 anonymisation fondée sur les noms de champs et la forme des valeurs, il ne peut pas garantir de reconnaître une chaîne
 secrète arbitraire placée par un futur firmware sous une clé inconnue. Vérifiez donc la capture avant de la partager si
 elle provient d'un firmware ou d'un plugin non pris en charge. Le fichier généré est ignoré par Git.
+
+`pnpm run debug:discord-test` nécessite également `TEST_FORUM_CHANNEL_ID`. Il crée réellement un post de test public,
+envoie un message et modifie ses tags dans ce forum ; ne l'utilisez pas sur un serveur où cet effet est indésirable.
 
 ## Validation TLS Bambu
 
@@ -255,10 +282,11 @@ Créez le fichier `.env` décrit plus haut, puis lancez le service fourni dans `
 docker compose up -d --build
 ```
 
-Le conteneur s'exécute avec un utilisateur non-root et stocke `printers.json` ainsi que `active-threads.json` dans le
-volume Docker `printer-config`, monté dans `/usr/src/app/config`. Ce volume conserve la configuration lors des mises à
-jour ou recréations du conteneur. Le mode réseau `host` permet au bot d'accéder aux imprimantes présentes sur le réseau
-local et nécessite un hôte Linux.
+Le conteneur s'exécute avec un utilisateur non-root et stocke tout le répertoire `config` dans le volume Docker
+`printer-config`, monté dans `/usr/src/app/config`. Ce volume conserve la configuration, la récupération des impressions
+et les notifications en attente lors des mises à jour ou recréations du conteneur. Le mode réseau `host` permet au bot
+d'accéder aux imprimantes présentes sur le réseau local et nécessite un hôte Linux. L'image finale n'embarque pas pnpm :
+il sert uniquement à construire l'application, ensuite exécutée directement avec Node.js.
 
 Ne supprimez pas le volume sans avoir sauvegardé la configuration. Si `CONFIG_ENCRYPTION_KEY` est définie, conservez
 également cette clé : les codes d'accès chiffrés ne peuvent pas être récupérés sans elle.
@@ -268,9 +296,11 @@ Ne supprimez pas le volume sans avoir sauvegardé la configuration. Si `CONFIG_E
 ```
 src/
 ├── index.ts                    # Point d'entrée principal
+├── application.ts              # Démarrage et arrêt ordonnés
 ├── constants.ts                # Variables d'environnement
 ├── enums.ts                    # Énumérations
 ├── libs/                       # Utilitaires stateless
+│   ├── bambu-tls/              # Autorités de certification Bambu
 │   ├── logger/                 # Logger Pino
 │   ├── project/                # Extraction images projet
 │   └── rtc/                    # Capture d'écran (protocole natif Bambu)
@@ -281,7 +311,7 @@ src/
 │   │   ├── bot.ts              # Client Discord
 │   │   ├── commands/           # Commandes slash
 │   │   └── embeds/             # Builders d'embeds
-│   ├── printer-manager/        # Gestion multi-imprimantes
+│   ├── printer-manager/        # Gestion multi-imprimantes et notifications
 │   └── printer-status/         # Gestionnaire d'état
 ├── types/                      # Types TypeScript
 └── tools/                      # Outils de debug
@@ -296,8 +326,18 @@ Sans cette clé, le bot refuse de charger ou d'enregistrer des imprimantes afin 
 en clair. Conservez toujours la même clé : une configuration chiffrée ne peut pas être chargée sans elle.
 
 Les associations des impressions actives avec leurs threads Discord sont sauvegardées dans
-`config/active-threads.json` afin de permettre une reprise après redémarrage. Ces fichiers contiennent des données
-sensibles et sont ignorés par Git.
+`config/active-threads.json` afin de rattacher une impression en cours après redémarrage sans créer de thread en double.
+Les notifications sont d'abord journalisées dans `config/notification-outbox.json`; leurs images en attente sont
+conservées sous `config/notification-attachments/`. Le bot réessaie les erreurs Discord transitoires et réconcilie les
+envois dont le résultat est incertain avant de renvoyer, puis reprend ce travail après un redémarrage.
+
+Pendant une impression active, une coupure MQTT de moins de 60 secondes reste silencieuse. Au-delà, le thread reçoit une
+alerte **Attention**; lorsque la communication revient et que l'impression continue, le bot annonce la reprise et
+restaure les tags correspondant à l'état courant. Cet état est lui aussi conservé dans l'outbox pour survivre à un
+redémarrage.
+
+Le répertoire `config` et les captures de diagnostic peuvent contenir des données sensibles et sont ignorés par Git.
+Sauvegardez ensemble ce répertoire et `CONFIG_ENCRYPTION_KEY`; ne publiez ni l'un ni l'autre.
 
 ## Forum Tags
 
@@ -307,7 +347,7 @@ Le bot crée automatiquement les tags suivants dans vos forum channels :
 - **Couleurs** : Multicolore, Monocolor
 - **Imprimantes** : Un tag par imprimante configurée
 
-Tous les tags sont modérés (seul le bot peut les modifier).
+Les tags gérés par le bot sont modérés. Les autres tags déjà présents dans un forum sont préservés.
 
 ## Licence
 
