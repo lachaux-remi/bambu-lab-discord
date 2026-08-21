@@ -164,8 +164,8 @@ describe("web bench controller", () => {
 
     expect(sessions).toHaveLength(1);
     expect(sessions[0]?.options).toMatchObject({ printer, timeScale: 0.01 });
-    expect(sessions[0]?.projectPlaceholder).toEqual(DEFAULT_PROJECT_PLACEHOLDER);
-    expect(sessions[0]?.cameraPlaceholder).toEqual(DEFAULT_CAMERA_PLACEHOLDER);
+    expect(sessions[0]?.projectPlaceholder?.equals(DEFAULT_PROJECT_PLACEHOLDER)).toBe(true);
+    expect(sessions[0]?.cameraPlaceholder?.equals(DEFAULT_CAMERA_PLACEHOLDER)).toBe(true);
     expect(controller.exportScenario().steps).toEqual([
       { action: "project", payload: { subtask_name: "Benchy" } },
       { action: "status", state: PrintState.RUNNING, payload: { mc_percent: 25 } }
@@ -264,7 +264,7 @@ describe("web bench controller", () => {
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
     controller.upload("project", jpeg, "image/jpeg");
     expect(controller.getPlaceholder("project")).toEqual(jpeg);
-    expect(controller.getPlaceholder("camera")).toEqual(DEFAULT_CAMERA_PLACEHOLDER);
+    expect(controller.getPlaceholder("camera").equals(DEFAULT_CAMERA_PLACEHOLDER)).toBe(true);
     expect(controller.state().history.at(-1)).toMatchObject({ kind: "admin", label: "Placeholder projet remplacé" });
     await controller.close();
   });
@@ -390,8 +390,8 @@ describe("web bench HTTP adapter", () => {
 
     const defaultProject = await fetch(`${base}/api/placeholder/project`);
     const defaultCamera = await fetch(`${base}/api/placeholder/camera`);
-    expect(Buffer.from(await defaultProject.arrayBuffer())).toEqual(DEFAULT_PROJECT_PLACEHOLDER);
-    expect(Buffer.from(await defaultCamera.arrayBuffer())).toEqual(DEFAULT_CAMERA_PLACEHOLDER);
+    expect(Buffer.from(await defaultProject.arrayBuffer()).equals(DEFAULT_PROJECT_PLACEHOLDER)).toBe(true);
+    expect(Buffer.from(await defaultCamera.arrayBuffer()).equals(DEFAULT_CAMERA_PLACEHOLDER)).toBe(true);
 
     const badUpload = await fetch(`${base}/api/placeholder/project`, {
       method: "PUT",
