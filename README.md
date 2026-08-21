@@ -255,13 +255,96 @@ pnpm run debug:rtc            # Tester les captures RTC
 
 ### Émulateur MQTT pour le développement
 
-Pour développer sans imprimante accessible sur le réseau, démarrez l'émulateur dans un premier terminal :
+Le banc de fausse imprimante utilise un seul moteur d'actions et de scénarios JSON v1 pour son interface web, son mode
+CI et son mode serveur. Il fabrique les enveloppes `PROJECT_FILE`/`PUSH_STATUS`, gère Aedes, les `pushall`, `STOP`, les
+payloads bruts ou partiels, les rafales, les coupures, les reconnexions et le redémarrage du gestionnaire. Les champs de
+`payload` restent partiels comme les vrais rapports Bambu. Une seule fausse imprimante est pilotée à la fois.
+
+#### Interface web locale et portail d'orb
+
+La commande de développement démarre désormais l'interface web sur loopback :
 
 ```bash
 pnpm run dev:mqtt-emulator
+# ouvrir http://127.0.0.1:4173 sur la machine locale
 ```
 
-Il expose une fausse imprimante Bambu Lab sur `mqtt://127.0.0.1:1883`. Configurez le bot avec :
+Dans un orb, le service suivi par le dépôt choisit son port et publie l'UI via le portail authentifié Amp :
+
+```bash
+amp orb services ensure
+# ouvrir uniquement l'URL de portail affichée par la commande
+```
+
+Le serveur HTTP reste lié à `127.0.0.1` par défaut. `--host` et `--port` permettent de modifier explicitement la liaison;
+le service d'orb fournit automatiquement `$PORT`. L'interface permet de :
+
+- configurer l'imprimante et l'impression, puis piloter progression, couches, temps restant, pause, reprise, succès,
+  échec ou annulation;
+- lancer un déroulé automatique avec durée logique, nombre d'étapes et accélération; la pause gèle le compte à rebours;
+- configurer AMS/multicolore et les champs de projet réellement consommés par le bot;
+- utiliser les deux placeholders fournis par défaut — cube bleu pour l'image projet/plateau et vue de l'imprimante pour
+  la capture caméra — puis remplacer chacun indépendamment par sélection ou glisser-déposer (PNG/JPEG, 10 Mio maximum);
+- ouvrir le panneau avancé pour envoyer un payload brut (1 Mio maximum), un statut partiel, une rafale bornée ou une
+  coupure MQTT avec état de reconnexion choisi;
+- consulter la connexion, l'état cumulé, les notifications mockées ou réelles et l'historique des résultats;
+- importer, éditer, exporter et rejouer la chronologie avec le même format JSON v1 que les scénarios CI.
+
+Le formulaire et la chronologie sont sauvegardés dans le `localStorage` du navigateur. Une recharge ne redémarre jamais
+une session MQTT : l'UI restaure les valeurs, affiche qu'un nouveau démarrage est nécessaire et laisse la simulation
+arrêtée. Seuls les délais logiques choisis sont exportés; le temps écoulé entre deux clics ne l'est pas. Une coupure en
+cours reste provisoire et hors scénario jusqu'à sa reconnexion, qui fixe sa durée exportable.
+
+Discord est toujours mocké par défaut. Pour seulement rendre le mode réel disponible dans l'UI, il faut les variables
+serveur, le token et le flag explicite suivants :
+
+```bash
+MOCK_DISCORD_GUILD_ID=<guild-id> \
+MOCK_DISCORD_FORUM_CHANNEL_ID=<forum-id> \
+pnpm run dev:mqtt-emulator -- --discord-e2e
+```
+
+Le navigateur ne reçoit jamais `DISCORD_BOT_TOKEN`. Avant le premier envoi, l'utilisateur doit encore activer
+l'interrupteur, vérifier les noms de la guilde et du forum obtenus via Discord, puis cocher une confirmation. Un badge
+rouge persiste tant que la livraison réelle est active. Les threads créés sont conservés par défaut; l'UI ne peut
+supprimer, après une nouvelle confirmation explicite, que les threads créés par la session courante. Cette action
+administrative apparaît dans l'historique mais jamais dans le scénario exporté. Les IDs restent des paramètres hors du
+dépôt.
+
+#### Scénarios déterministes et serveur MQTT externe
+
+Le mode non interactif démarre lui-même le vrai `BambuLabClient` et le vrai `PrinterManager`, mais remplace la livraison
+Discord par un adaptateur déterministe et utilise un stockage temporaire :
+
+```bash
+pnpm run test:mqtt-scenario -- scenarios/mock-mqtt-printer/long-outage-running.json
+pnpm run test:mqtt-scenario -- --all
+```
+
+Les coupures et le seuil d'alerte de 60 secondes utilisent la même échelle de temps (`0.01` par défaut en CI). Chaque
+exécution écrit une ligne `SCENARIO_RESULT` JSON. `status: "passed"`, `shutdown: "clean"` et le code de sortie `0`
+indiquent le succès; une assertion ou un arrêt incomplet produit `status: "failed"` et un code non nul. Le mode CI par
+défaut ne charge pas `.env` et ne contacte jamais Discord.
+
+Scénarios fournis : impression réussie, coupure courte avec reprise `RUNNING`, coupure longue avec reprise `RUNNING`,
+`PAUSE` ou terminale et restauration des tags, redémarrage pendant une impression sans second thread, brut malformé
+puis valide, statut partiel puis valide, `STOP success`, rafale/backlog borné et arrêt contrôlé.
+
+Un smoke test Discord réel en ligne de commande reste disponible uniquement sur activation explicite :
+
+```bash
+MOCK_DISCORD_GUILD_ID=<guild-id> \
+MOCK_DISCORD_FORUM_CHANNEL_ID=<forum-id> \
+pnpm run test:mqtt-scenario -- --discord-e2e scenarios/mock-mqtt-printer/discord-e2e-smoke.json
+```
+
+Pour servir un scénario à un bot lancé séparément plutôt que d'utiliser le client et le gestionnaire intégrés :
+
+```bash
+pnpm run dev:mqtt-emulator -- --serve scenarios/mock-mqtt-printer/stop-success.json
+```
+
+Ce mode expose une fausse imprimante Bambu Lab sur `mqtt://127.0.0.1:1883`. Configurez le bot séparé avec :
 
 - IP : `127.0.0.1`
 - port MQTT : `1883`
@@ -269,9 +352,15 @@ Il expose une fausse imprimante Bambu Lab sur `mqtt://127.0.0.1:1883`. Configure
 - code d'accès : `mock-access-code`
 - variable d'environnement : `MQTT_PROTOCOL=mqtt`
 
-Au premier `pushall` du bot, l'émulateur joue automatiquement un scénario complet : préparation, démarrage,
-progression, pause, reprise et fin réussie. Le MQTT sécurisé (`mqtts`) reste utilisé par défaut lorsque
-`MQTT_PROTOCOL` n'est pas défini.
+Chaque `pushall` rejoue le scénario; un `pushall` de reconnexion pendant une coupure poursuit le scénario en cours. Le
+MQTT sécurisé (`mqtts`) reste utilisé par défaut pour le bot lorsque `MQTT_PROTOCOL` n'est pas défini.
+En mode CI, `restart` recrée le gestionnaire et le coordinateur; en mode serveur, cette action attend le prochain
+`pushall` d'un bot redémarré séparément avant de publier l'état de reprise choisi.
+
+Ce banc ne simule pas de serveur RTC/TLS : l'image projet est injectée dans le statut Bambu et l'image caméra est
+retournée par l'adapter de capture afin de couvrir leurs chemins de notification distincts sans dupliquer le protocole
+caméra. Les tests socket de `src/libs/rtc/` couvrent déjà les trames et les erreurs. La capture d'une vraie caméra et la
+restauration physique de l'éclairage exigent toujours une imprimante.
 
 ## Déploiement Docker
 

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "long-outage-pause",
+  "description": "A logical 65-second outage raises an alert and recovers in PAUSE.",
+  "steps": [
+    { "action": "project", "payload": { "model_id": "long-pause", "subtask_name": "Reprise en pause" } },
+    { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 40 } },
+    {
+      "action": "outage",
+      "durationMs": 65000,
+      "resume": { "state": "PAUSE", "payload": { "mc_percent": 40 } }
+    }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "PAUSE", "progressPercent": 40 },
+    "includeNotificationTitles": [
+      "Démarrage de l'impression",
+      "Communication perdue",
+      "Communication rétablie",
+      "Impression en pause"
+    ],
+    "minimumPushallCount": 2,
+    "requiredTagsByNotificationTitle": {
+      "Communication perdue": ["Attention"],
+      "Communication rétablie": ["En pause"]
+    }
+  }
+}

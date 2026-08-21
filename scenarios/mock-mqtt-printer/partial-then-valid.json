@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "partial-then-valid",
+  "description": "A partial PUSH_STATUS without state is accumulated before a valid RUNNING snapshot.",
+  "steps": [
+    { "action": "status", "payload": { "layer_num": 2, "mc_percent": 7 } },
+    {
+      "action": "status",
+      "state": "RUNNING",
+      "payload": { "subtask_name": "Statut partiel", "total_layer_num": 30, "mc_remaining_time": 20 }
+    }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "RUNNING", "progressPercent": 7 },
+    "includeNotificationTitles": ["Démarrage de l'impression"]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "long-outage-running",
+  "description": "A logical 65-second outage raises an alert and recovers in RUNNING.",
+  "steps": [
+    { "action": "project", "payload": { "model_id": "long-running", "subtask_name": "Reprise en cours" } },
+    { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 20 } },
+    {
+      "action": "outage",
+      "durationMs": 65000,
+      "resume": { "state": "RUNNING", "payload": { "mc_percent": 25 } }
+    },
+    { "action": "status", "state": "FINISH", "payload": { "mc_percent": 100 } }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "FINISH", "progressPercent": 100 },
+    "includeNotificationTitles": [
+      "Démarrage de l'impression",
+      "Communication perdue",
+      "Communication rétablie",
+      "Impression terminée"
+    ],
+    "minimumPushallCount": 2,
+    "requiredTagsByNotificationTitle": {
+      "Communication perdue": ["Attention"],
+      "Communication rétablie": ["En cours"]
+    }
+  }
+}

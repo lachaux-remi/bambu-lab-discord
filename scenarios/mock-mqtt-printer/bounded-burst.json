@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "bounded-burst",
+  "description": "A 64-message transition burst exercises twice the 32-entry BambuLabClient backlog bound.",
+  "steps": [
+    { "action": "project", "payload": { "model_id": "burst", "subtask_name": "Rafale bornée" } },
+    { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 10 } },
+    {
+      "action": "burst",
+      "count": 64,
+      "messages": [
+        { "action": "status", "state": "PAUSE", "payload": { "mc_percent": 50 } },
+        { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 50 } }
+      ]
+    },
+    { "action": "wait", "durationMs": 10000 },
+    { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 60 } },
+    { "action": "status", "state": "FINISH", "payload": { "mc_percent": 100 } }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "FINISH", "progressPercent": 100 },
+    "includeNotificationTitles": ["Démarrage de l'impression", "Impression terminée"],
+    "maximumNotificationCount": 40
+  }
+}

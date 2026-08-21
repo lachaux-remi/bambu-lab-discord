@@ -26,7 +26,7 @@ import {
   printStarted,
   printStopped
 } from "../discord/embeds";
-import { printNotificationCoordinator } from "./print-notification-coordinator";
+import { type PrintNotificationCoordinator, printNotificationCoordinator } from "./print-notification-coordinator";
 
 const logger = getLogger("PrinterManager");
 
@@ -130,17 +130,40 @@ interface StartingPrinter {
   cancellation?: Promise<void>;
 }
 
-class PrinterManager {
+export interface PrinterManagerDependencies {
+  getPrinter: typeof getPrinter;
+  getEnabledPrinters: typeof getEnabledPrinters;
+  getActivePrintThread: typeof getActivePrintThread;
+  removeActivePrintThread: typeof removeActivePrintThread;
+  createClient: (config: PrinterConfig) => BambuLabClient;
+  notificationCoordinator: PrintNotificationCoordinator;
+}
+
+const defaultDependencies: PrinterManagerDependencies = {
+  getPrinter,
+  getEnabledPrinters,
+  getActivePrintThread,
+  removeActivePrintThread,
+  createClient: config => new BambuLabClient(config),
+  notificationCoordinator: printNotificationCoordinator
+};
+
+export class PrinterManager {
   private printers: Map<string, PrinterInstance> = new Map();
   private startingPrinters: Map<string, StartingPrinter> = new Map();
   private printerOperations: Map<string, Promise<void>> = new Map();
+  private readonly dependencies: PrinterManagerDependencies;
+
+  public constructor(dependencies: Partial<PrinterManagerDependencies> = {}) {
+    this.dependencies = { ...defaultDependencies, ...dependencies };
+  }
 
   /**
    * Démarre toutes les imprimantes activées
    */
   public async startAll(): Promise<void> {
-    printNotificationCoordinator.start();
-    const enabledPrinters = getEnabledPrinters();
+    this.dependencies.notificationCoordinator.start();
+    const enabledPrinters = this.dependencies.getEnabledPrinters();
     logger.info({ count: enabledPrinters.length }, "Starting all enabled printers");
 
     let availablePrinters = 0;
@@ -170,7 +193,7 @@ class PrinterManager {
     ]);
     logger.info({ count: printerIds.size }, "Stopping all printers");
     const results = await Promise.allSettled(Array.from(printerIds, id => this.stopPrinter(id)));
-    await printNotificationCoordinator.stop();
+    await this.dependencies.notificationCoordinator.stop();
     const errors = results.flatMap(result => (result.status === "rejected" ? [result.reason] : []));
     if (errors.length > 0) {
       throw new AggregateError(errors, "Failed to stop all printers");
@@ -185,7 +208,7 @@ class PrinterManager {
   }
 
   private async startPrinterInternal(printerId: string, failOnCertificateError: boolean): Promise<boolean> {
-    const config = getPrinter(printerId);
+    const config = this.dependencies.getPrinter(printerId);
     if (!config) {
       logger.error({ printerId }, "Printer not found");
       return false;
@@ -224,7 +247,7 @@ class PrinterManager {
     startingPrinter: StartingPrinter,
     failOnCertificateError: boolean = false
   ): Promise<boolean> {
-    printNotificationCoordinator.start();
+    this.dependencies.notificationCoordinator.start();
     if (startingPrinter.cancelled) {
       return false;
     }
@@ -233,12 +256,12 @@ class PrinterManager {
       return true;
     }
 
-    const client = new BambuLabClient(config);
+    const client = this.dependencies.createClient(config);
     const instance: PrinterInstance = {
       client,
       config,
       lastProgressPercent: 0,
-      recoveredThread: getActivePrintThread(config.id) ?? undefined
+      recoveredThread: this.dependencies.getActivePrintThread(config.id) ?? undefined
     };
     startingPrinter.instance = instance;
     this.setupClientListeners(instance);
@@ -353,7 +376,7 @@ class PrinterManager {
       this.cancelPrinterStart(currentStart);
     }
 
-    const config = getPrinter(printerId);
+    const config = this.dependencies.getPrinter(printerId);
     const restartStart: StartingPrinter = {
       cancelled: false,
       promise: Promise.resolve(false)
@@ -423,16 +446,16 @@ class PrinterManager {
     const { client } = instance;
 
     client.on("lost", () => {
-      void printNotificationCoordinator.communicationLost(instance.config.id);
+      void this.dependencies.notificationCoordinator.communicationLost(instance.config.id);
     });
     client.on("ready", () => {
-      void printNotificationCoordinator.communicationReady(instance.config.id);
+      void this.dependencies.notificationCoordinator.communicationReady(instance.config.id);
     });
     client.on("cancellationRequested", () =>
-      printNotificationCoordinator.recordCancellationRequested(instance.config.id)
+      this.dependencies.notificationCoordinator.recordCancellationRequested(instance.config.id)
     );
     client.on("status", async (newStatus: Status, oldStatus: Status) => {
-      printNotificationCoordinator.restoreCancellationRequested(instance.config.id, newStatus);
+      this.dependencies.notificationCoordinator.restoreCancellationRequested(instance.config.id, newStatus);
       instance.latestStatus = { ...newStatus };
       await this.handleStatusChange(instance, newStatus, oldStatus);
     });
@@ -504,7 +527,7 @@ class PrinterManager {
 
     const printKey = this.getPrintKey(config, newStatus);
     const context = this.getNotificationContext(instance, printKey, currentStatus);
-    await printNotificationCoordinator.recordStatus(context);
+    await this.dependencies.notificationCoordinator.recordStatus(context);
 
     const sendMessage = async (
       result: Awaited<ReturnType<typeof printProgress>>,
@@ -513,7 +536,7 @@ class PrinterManager {
       capture = false
     ) => {
       const tags = [...getDiscordTagsForStatus({ ...newStatus, state }), config.name];
-      await printNotificationCoordinator.enqueueNotification(
+      await this.dependencies.notificationCoordinator.enqueueNotification(
         context,
         result,
         tags,
@@ -532,11 +555,11 @@ class PrinterManager {
         arePrintIdentitiesIncompatible(getRecoveredPrintIdentity(recoveredThread), buildPrintIdentity(newStatus))
       ) {
         instance.recoveredThread = undefined;
-        removeActivePrintThread(config.id);
-        printNotificationCoordinator.discardPrint(config.id);
+        this.dependencies.removeActivePrintThread(config.id);
+        this.dependencies.notificationCoordinator.discardPrint(config.id);
         return;
       }
-      printNotificationCoordinator.recoverThread(context, recoveredThread.threadId);
+      this.dependencies.notificationCoordinator.recoverThread(context, recoveredThread.threadId);
       instance.recoveredThread = undefined;
       if (newStatus.state === PrintState.FINISH && (newStatus.progressPercent ?? 0) === 100) {
         await sendMessage(await printFinished(newStatus, async () => null), PrintState.FINISH, true, true);
@@ -553,8 +576,8 @@ class PrinterManager {
 
     if (oldStatus.state === PrintState.UNKNOWN && newStatus.state === PrintState.PREPARE) {
       instance.recoveredThread = undefined;
-      removeActivePrintThread(config.id);
-      printNotificationCoordinator.discardPrint(config.id);
+      this.dependencies.removeActivePrintThread(config.id);
+      this.dependencies.notificationCoordinator.discardPrint(config.id);
     }
 
     // Reattach a persisted thread after a restart, or create one if no previous mapping exists.
@@ -575,10 +598,10 @@ class PrinterManager {
             },
             "Persisted thread belongs to a different print"
           );
-          removeActivePrintThread(config.id);
-          printNotificationCoordinator.discardPrint(config.id);
+          this.dependencies.removeActivePrintThread(config.id);
+          this.dependencies.notificationCoordinator.discardPrint(config.id);
         } else {
-          printNotificationCoordinator.recoverThread(context, recoveredThread.threadId);
+          this.dependencies.notificationCoordinator.recoverThread(context, recoveredThread.threadId);
           logger.info(
             { printKey, threadId: recoveredThread.threadId, printer: config.name },
             "Recovered active print thread"
@@ -587,11 +610,11 @@ class PrinterManager {
         instance.recoveredThread = undefined;
       }
 
-      if (!printNotificationCoordinator.hasPrintTarget(config.id, printKey)) {
+      if (!this.dependencies.notificationCoordinator.hasPrintTarget(config.id, printKey)) {
         const result =
           newStatus.state === PrintState.PAUSE ? await printRecovery(async () => null) : printStarted(newStatus);
         const tags = [...getDiscordTagsForStatus(newStatus), config.name];
-        await printNotificationCoordinator.enqueueThreadCreation(
+        await this.dependencies.notificationCoordinator.enqueueThreadCreation(
           context,
           result,
           tags,
@@ -622,7 +645,7 @@ class PrinterManager {
         logger.info({ printer: config.name }, "Chamber light timer cancelled (new print started)");
       }
 
-      if (printNotificationCoordinator.hasPrintTarget(config.id, printKey)) {
+      if (this.dependencies.notificationCoordinator.hasPrintTarget(config.id, printKey)) {
         logger.warn({ printKey }, "Thread already exists for this print key");
         return;
       }
@@ -631,7 +654,7 @@ class PrinterManager {
       const tags = [...getInitialDiscordTags(newStatus.isMulticolor ?? false), config.name];
 
       logger.info({ printKey, tags, printer: config.name }, "Creating new thread for print");
-      await printNotificationCoordinator.enqueueThreadCreation(
+      await this.dependencies.notificationCoordinator.enqueueThreadCreation(
         context,
         result,
         tags,
