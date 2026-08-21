@@ -26,6 +26,10 @@ vi.mock("node:timers/promises", () => ({ setTimeout: sleepMock }));
 vi.mock("../src/libs/logger", () => ({ getLogger: () => loggerMock }));
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const MAX_IMAGE_SIZE = 15 * 1024 * 1024;
+const LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
+const CENTRAL_DIRECTORY_HEADER_SIGNATURE = 0x02014b50;
+const END_OF_CENTRAL_DIRECTORY_SIGNATURE = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
 const PUBLIC_IPV4: LookupAddress = { address: "93.184.216.34", family: 4 };
 const PUBLIC_IPV6: LookupAddress = { address: "2606:4700:4700::1111", family: 6 };
 
@@ -56,6 +60,36 @@ const projectArchive = (files: Record<string, Buffer>): Buffer => {
 
 const pngArchive = (plate: StringNumber = "1", contents: Buffer = Buffer.concat([PNG_SIGNATURE, Buffer.from("png")])) =>
   projectArchive({ [`Metadata/plate_${plate}.png`]: contents });
+
+const storedPngArchive = (contents: Buffer = Buffer.concat([PNG_SIGNATURE, Buffer.from("png")])): Buffer => {
+  const archive = new AdmZip();
+  const entry = archive.addFile("Metadata/plate_1.png", contents);
+  entry.header.method = 0;
+  return archive.toBuffer();
+};
+
+const patchZipHeaders = (
+  archive: Buffer,
+  patch: (patchedArchive: Buffer, localHeaderOffset: number, centralHeaderOffset: number) => void
+): Buffer => {
+  const patchedArchive = Buffer.from(archive);
+  const endOffset = patchedArchive.lastIndexOf(END_OF_CENTRAL_DIRECTORY_SIGNATURE);
+  if (endOffset < 0) {
+    throw new Error("Test ZIP is missing its end-of-central-directory record");
+  }
+
+  const centralHeaderOffset = patchedArchive.readUInt32LE(endOffset + 16);
+  const localHeaderOffset = patchedArchive.readUInt32LE(centralHeaderOffset + 42);
+  if (
+    patchedArchive.readUInt32LE(localHeaderOffset) !== LOCAL_FILE_HEADER_SIGNATURE ||
+    patchedArchive.readUInt32LE(centralHeaderOffset) !== CENTRAL_DIRECTORY_HEADER_SIGNATURE
+  ) {
+    throw new Error("Test ZIP headers are malformed");
+  }
+
+  patch(patchedArchive, localHeaderOffset, centralHeaderOffset);
+  return patchedArchive;
+};
 
 const respondToRequests = (createResponse: () => IncomingMessage): void => {
   requestMock.mockImplementation((_url: URL, _options: RequestOptions, callback: (value: IncomingMessage) => void) => {
@@ -217,8 +251,8 @@ describe("project image download", () => {
     expect(sleepMock).not.toHaveBeenCalled();
   });
 
-  it("retries transient HTTP errors up to the configured limit", async () => {
-    respondToRequests(() => response(503));
+  it.each([408, 429, 500, 503])("retries transient HTTP %i responses up to the configured limit", async status => {
+    respondToRequests(() => response(status));
 
     await expect(extract()).resolves.toBeNull();
 
@@ -324,7 +358,8 @@ describe("project image download", () => {
 
     await expect(extract()).resolves.toBeNull();
 
-    expect(requestMock).toHaveBeenCalledTimes(5);
+    expect(requestMock).toHaveBeenCalledOnce();
+    expect(sleepMock).not.toHaveBeenCalled();
   });
 
   it("returns null when the requested plate is absent", async () => {
@@ -335,13 +370,131 @@ describe("project image download", () => {
     expect(requestMock).toHaveBeenCalledOnce();
   });
 
-  it("rejects a plate image whose declared size exceeds the limit", async () => {
-    const oversizedPng = Buffer.concat([PNG_SIGNATURE, Buffer.alloc(15 * 1024 * 1024)]);
+  it("bounds oversized DEFLATE output when the central-directory image size is forged to zero", async () => {
+    const oversizedPng = Buffer.alloc(MAX_IMAGE_SIZE + 1);
+    PNG_SIGNATURE.copy(oversizedPng);
+    const archive = patchZipHeaders(pngArchive("1", oversizedPng), (patchedArchive, _localOffset, centralOffset) => {
+      patchedArchive.writeUInt32LE(0, centralOffset + 24);
+    });
+    respondToRequests(() => response(200, [archive]));
+
+    await expect(extract()).resolves.toBeNull();
+
+    expect(requestMock).toHaveBeenCalledOnce();
+    expect(sleepMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects DEFLATE output larger than 15 MiB", async () => {
+    const oversizedPng = Buffer.alloc(MAX_IMAGE_SIZE + 1);
+    PNG_SIGNATURE.copy(oversizedPng);
     respondToRequests(() => response(200, [pngArchive("1", oversizedPng)]));
 
     await expect(extract()).resolves.toBeNull();
 
     expect(requestMock).toHaveBeenCalledOnce();
+    expect(sleepMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a DEFLATE entry whose central-directory image size is falsely zero", async () => {
+    const archive = patchZipHeaders(pngArchive(), (patchedArchive, _localOffset, centralOffset) => {
+      patchedArchive.writeUInt32LE(0, centralOffset + 24);
+    });
+    respondToRequests(() => response(200, [archive]));
+
+    await expect(extract()).resolves.toBeNull();
+
+    expect(requestMock).toHaveBeenCalledOnce();
+    expect(sleepMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an inconsistent STORE entry", async () => {
+    const archive = patchZipHeaders(pngArchive(), (patchedArchive, localOffset, centralOffset) => {
+      patchedArchive.writeUInt16LE(0, localOffset + 8);
+      patchedArchive.writeUInt16LE(0, centralOffset + 10);
+    });
+    respondToRequests(() => response(200, [archive]));
+
+    await expect(extract()).resolves.toBeNull();
+
+    expect(requestMock).toHaveBeenCalledOnce();
+    expect(sleepMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a valid PNG from a STORE entry", async () => {
+    const image = Buffer.concat([PNG_SIGNATURE, Buffer.from("stored image")]);
+    respondToRequests(() => response(200, [storedPngArchive(image)]));
+
+    await expect(extract()).resolves.toEqual(image);
+
+    expect(requestMock).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a ZIP entry whose compressed data is shorter than its declared size", async () => {
+    const archive = patchZipHeaders(pngArchive(), (patchedArchive, _localOffset, centralOffset) => {
+      patchedArchive.writeUInt32LE(patchedArchive.length, centralOffset + 20);
+    });
+    respondToRequests(() => response(200, [archive]));
+
+    await expect(extract()).resolves.toBeNull();
+
+    expect(requestMock).toHaveBeenCalledOnce();
+    expect(sleepMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an encrypted plate image", async () => {
+    const archive = patchZipHeaders(pngArchive(), (patchedArchive, localOffset, centralOffset) => {
+      patchedArchive.writeUInt16LE(patchedArchive.readUInt16LE(localOffset + 6) | 1, localOffset + 6);
+      patchedArchive.writeUInt16LE(patchedArchive.readUInt16LE(centralOffset + 8) | 1, centralOffset + 8);
+    });
+    respondToRequests(() => response(200, [archive]));
+
+    await expect(extract()).resolves.toBeNull();
+
+    expect(requestMock).toHaveBeenCalledOnce();
+    expect(sleepMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsupported ZIP compression method", async () => {
+    const archive = patchZipHeaders(pngArchive(), (patchedArchive, localOffset, centralOffset) => {
+      patchedArchive.writeUInt16LE(12, localOffset + 8);
+      patchedArchive.writeUInt16LE(12, centralOffset + 10);
+    });
+    respondToRequests(() => response(200, [archive]));
+
+    await expect(extract()).resolves.toBeNull();
+
+    expect(requestMock).toHaveBeenCalledOnce();
+    expect(sleepMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a plate image with an invalid CRC", async () => {
+    const archive = patchZipHeaders(pngArchive(), (patchedArchive, localOffset, centralOffset) => {
+      const invalidCrc = patchedArchive.readUInt32LE(centralOffset + 16) ^ 0xffffffff;
+      patchedArchive.writeUInt32LE(invalidCrc >>> 0, localOffset + 14);
+      patchedArchive.writeUInt32LE(invalidCrc >>> 0, centralOffset + 16);
+    });
+    respondToRequests(() => response(200, [archive]));
+
+    await expect(extract()).resolves.toBeNull();
+
+    expect(requestMock).toHaveBeenCalledOnce();
+    expect(sleepMock).not.toHaveBeenCalled();
+  });
+
+  it("does not retry invalid DEFLATE data", async () => {
+    const archive = patchZipHeaders(pngArchive(), (patchedArchive, localOffset, centralOffset) => {
+      const fileNameLength = patchedArchive.readUInt16LE(localOffset + 26);
+      const extraLength = patchedArchive.readUInt16LE(localOffset + 28);
+      const compressedSize = patchedArchive.readUInt32LE(centralOffset + 20);
+      const dataOffset = localOffset + 30 + fileNameLength + extraLength;
+      patchedArchive.fill(0xff, dataOffset, dataOffset + compressedSize);
+    });
+    respondToRequests(() => response(200, [archive]));
+
+    await expect(extract()).resolves.toBeNull();
+
+    expect(requestMock).toHaveBeenCalledOnce();
+    expect(sleepMock).not.toHaveBeenCalled();
   });
 
   it("rejects a plate image without a PNG signature", async () => {
@@ -350,6 +503,7 @@ describe("project image download", () => {
     await expect(extract()).resolves.toBeNull();
 
     expect(requestMock).toHaveBeenCalledOnce();
+    expect(sleepMock).not.toHaveBeenCalled();
   });
 
   it("returns the requested PNG image from a valid 3MF archive", async () => {
