@@ -8,9 +8,6 @@
     "removeComments": true,
     "strict": true
   },
-  "ts-node": {
-    "esm": true
-  },
   "include": [
     "src/**/*.ts"
   ],

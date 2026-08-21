@@ -72,6 +72,9 @@ describe("safe MQTT capture", () => {
     expectSafe(ndjson);
     expectSafe(consoleOutput);
     expect(first).toMatchObject({ timestamp: "2026-08-20T10:00:00.000Z", key: "print" });
+    if (!("payload" in first) || !("payload" in second)) {
+      throw new Error("Expected valid capture records");
+    }
     expect(first.payload).toEqual(second.payload);
     expect(consoleOutput).toContain("progress=0%");
     expect(consoleOutput).toContain("layer=0/120");

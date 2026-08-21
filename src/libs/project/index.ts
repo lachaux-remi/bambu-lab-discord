@@ -5,7 +5,7 @@ import type { IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
 import type { LookupFunction } from "node:net";
-import { setTimeout as delay } from "timers/promises";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { StringNumber } from "../../types/general";
 import { getLogger } from "../logger";
