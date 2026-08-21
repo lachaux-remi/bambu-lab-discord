@@ -7,6 +7,7 @@ import type { PrinterConfig } from "../src/types/printer-config";
 const mocks = vi.hoisted(() => ({
   addPrinter: vi.fn(),
   ensurePrinterTag: vi.fn(),
+  getAllPrinters: vi.fn(),
   getPrinter: vi.fn(),
   updatePrinter: vi.fn(),
   getPrinterStatus: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../src/services/database", () => ({
   addPrinter: mocks.addPrinter,
+  getAllPrinters: mocks.getAllPrinters,
   getPrinter: mocks.getPrinter,
   updatePrinter: mocks.updatePrinter
 }));
@@ -53,13 +55,15 @@ const interaction = (values: Record<string, unknown> = {}) => ({
   },
   reply: vi.fn(),
   deferReply: vi.fn(),
-  editReply: vi.fn()
+  editReply: vi.fn(),
+  followUp: vi.fn()
 });
 
 describe("printer administration commands", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getPrinter.mockReturnValue(printer);
+    mocks.getAllPrinters.mockReturnValue([]);
     mocks.getPrinterStatus.mockReturnValue({ running: true, connected: true });
     mocks.updatePrinter.mockImplementation((_id: string, updates: Partial<PrinterConfig>) => ({
       ...printer,
@@ -103,6 +107,30 @@ describe("printer administration commands", () => {
         expect.objectContaining({ name: "Temps restant", value: "1 heure 15 minutes" })
       ])
     );
+  });
+
+  it("répartit 26 imprimantes sur plusieurs embeds valides", async () => {
+    const printers = Array.from({ length: 26 }, (_, index) => ({
+      ...printer,
+      id: `printer-${index + 1}`,
+      name: `Printer ${index + 1}`
+    }));
+    mocks.getAllPrinters.mockReturnValue(printers);
+    const { handlePrinterList } = await import("../src/services/discord/commands/printer-list");
+    const request = interaction();
+
+    await handlePrinterList(request as never);
+
+    expect(request.reply).toHaveBeenCalledWith({
+      embeds: [expect.anything(), expect.anything()],
+      flags: MessageFlags.Ephemeral
+    });
+    const embeds = request.reply.mock.calls[0][0].embeds.map((embed: { toJSON: () => { fields?: unknown[] } }) =>
+      embed.toJSON()
+    );
+    expect(embeds.map((embed: { fields?: unknown[] }) => embed.fields?.length)).toEqual([25, 1]);
+    expect(embeds.every((embed: { fields?: unknown[] }) => (embed.fields?.length ?? 0) <= 25)).toBe(true);
+    expect(request.followUp).not.toHaveBeenCalled();
   });
 
   it("reconnecte immédiatement une imprimante active", async () => {

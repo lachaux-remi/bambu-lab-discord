@@ -3,11 +3,12 @@ import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
 import { getLogger } from "../../../libs/logger";
 import { getPrinter, removePrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
+import { PRINTER_OPTION } from "./contract";
 
 const logger = getLogger("PrinterRemove");
 
 export const handlePrinterRemove = async (interaction: ChatInputCommandInteraction): Promise<void> => {
-  const printerId = interaction.options.getString("name", true);
+  const printerId = interaction.options.getString(PRINTER_OPTION.NAME, true);
 
   const printer = getPrinter(printerId);
   if (!printer) {

@@ -5,9 +5,10 @@ import { getPrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
 import { createPrintThread } from "../bot";
 import { createBaseEmbed } from "../embeds";
+import { PRINTER_OPTION } from "./contract";
 
 export const handlePrinterScreenshot = async (interaction: ChatInputCommandInteraction): Promise<void> => {
-  const printerId = interaction.options.getString("name", true);
+  const printerId = interaction.options.getString(PRINTER_OPTION.NAME, true);
   const printer = getPrinter(printerId);
   if (!printer) {
     await interaction.reply({
