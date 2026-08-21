@@ -283,8 +283,8 @@ le service d'orb fournit automatiquement `$PORT`. L'interface permet de :
   échec ou annulation;
 - lancer un déroulé automatique avec durée logique, nombre d'étapes et accélération; la pause gèle le compte à rebours;
 - configurer AMS/multicolore et les champs de projet réellement consommés par le bot;
-- remplacer par sélection ou glisser-déposer le placeholder PNG/JPEG neutre (10 Mio maximum) injecté dans les médias des
-  notifications;
+- utiliser les deux placeholders fournis par défaut — cube bleu pour l'image projet/plateau et vue de l'imprimante pour
+  la capture caméra — puis remplacer chacun indépendamment par sélection ou glisser-déposer (PNG/JPEG, 10 Mio maximum);
 - ouvrir le panneau avancé pour envoyer un payload brut (1 Mio maximum), un statut partiel, une rafale bornée ou une
   coupure MQTT avec état de reconnexion choisi;
 - consulter la connexion, l'état cumulé, les notifications mockées ou réelles et l'historique des résultats;
@@ -357,9 +357,10 @@ MQTT sécurisé (`mqtts`) reste utilisé par défaut pour le bot lorsque `MQTT_P
 En mode CI, `restart` recrée le gestionnaire et le coordinateur; en mode serveur, cette action attend le prochain
 `pushall` d'un bot redémarré séparément avant de publier l'état de reprise choisi.
 
-Ce banc ne simule pas de serveur RTC/TLS : son image unique remplace les médias nécessaires pour couvrir le chemin des
-notifications sans dupliquer le protocole caméra. Les tests socket de `src/libs/rtc/` couvrent déjà les trames et les
-erreurs. La capture d'une vraie caméra et la restauration physique de l'éclairage exigent toujours une imprimante.
+Ce banc ne simule pas de serveur RTC/TLS : l'image projet est injectée dans le statut Bambu et l'image caméra est
+retournée par l'adapter de capture afin de couvrir leurs chemins de notification distincts sans dupliquer le protocole
+caméra. Les tests socket de `src/libs/rtc/` couvrent déjà les trames et les erreurs. La capture d'une vraie caméra et la
+restauration physique de l'éclairage exigent toujours une imprimante.
 
 ## Déploiement Docker
 

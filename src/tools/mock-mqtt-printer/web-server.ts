@@ -5,7 +5,7 @@ import { extname, join, normalize } from "node:path";
 import { getLogger } from "../../libs/logger";
 import { DISCORD_ATTACHMENT_SIZE_LIMIT } from "../../services/discord/payload";
 import type { DiscordE2EOptions } from "./session";
-import { WebBenchController } from "./web-controller";
+import { type PlaceholderKind, WebBenchController } from "./web-controller";
 
 const logger = getLogger("MQTT-MockPrinter-Web");
 const STATIC_DIRECTORY = join(__dirname, "web");
@@ -33,6 +33,8 @@ const contentTypeFor = (path: string): string => {
       return "text/css; charset=utf-8";
     case ".js":
       return "text/javascript; charset=utf-8";
+    case ".png":
+      return "image/png";
     case ".svg":
       return "image/svg+xml";
     default:
@@ -124,6 +126,8 @@ export const startWebBenchServer = async (options: WebBenchServerOptions = {}): 
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
       const path = url.pathname;
       const method = request.method ?? "GET";
+      const placeholderKind: PlaceholderKind | undefined =
+        path === "/api/placeholder/project" ? "project" : path === "/api/placeholder/camera" ? "camera" : undefined;
 
       if (method === "GET" && path === "/api/health") {
         writeJson(response, 200, { status: "ok" });
@@ -133,8 +137,8 @@ export const startWebBenchServer = async (options: WebBenchServerOptions = {}): 
         writeJson(response, 200, controller.state());
         return;
       }
-      if (method === "GET" && path === "/api/placeholder") {
-        const placeholder = controller.getPlaceholder();
+      if (method === "GET" && placeholderKind) {
+        const placeholder = controller.getPlaceholder(placeholderKind);
         response.writeHead(200, {
           "cache-control": "no-store",
           "content-length": placeholder.length,
@@ -155,10 +159,10 @@ export const startWebBenchServer = async (options: WebBenchServerOptions = {}): 
         response.end(`${scenario}\n`);
         return;
       }
-      if (method === "PUT" && path === "/api/placeholder") {
+      if (method === "PUT" && placeholderKind) {
         ensureMutationRequest(request);
         const body = await readBody(request, DISCORD_ATTACHMENT_SIZE_LIMIT + 1);
-        controller.upload(body, request.headers["content-type"] ?? "");
+        controller.upload(placeholderKind, body, request.headers["content-type"] ?? "");
         writeJson(response, 200, controller.state());
         return;
       }

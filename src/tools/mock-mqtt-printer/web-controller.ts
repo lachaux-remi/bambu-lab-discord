@@ -3,6 +3,8 @@ import { DISCORD_ATTACHMENT_SIZE_LIMIT } from "../../services/discord/payload";
 import type { PrinterScenario, ScenarioStep, StatusStep } from "./scenario";
 import { parseScenario } from "./scenario";
 import {
+  DEFAULT_CAMERA_PLACEHOLDER,
+  DEFAULT_PROJECT_PLACEHOLDER,
   type DiscordE2EOptions,
   type DiscordTargetDetails,
   type ScenarioPrinterOptions,
@@ -16,10 +18,8 @@ const MAX_MQTT_PAYLOAD_SIZE = 1024 * 1024;
 const MAX_AUTO_DURATION_MS = 24 * 60 * 60_000;
 const MAX_AUTO_STEPS = 1_000;
 const MAX_SPEED = 10_000;
-const DEFAULT_PLACEHOLDER = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-  "base64"
-);
+
+export type PlaceholderKind = "camera" | "project";
 
 export interface BenchHistoryEntry {
   at: number;
@@ -72,7 +72,8 @@ interface ScenarioSessionContract {
   play(scenario: PrinterScenario): Promise<unknown>;
   playSteps(steps: ScenarioStep[]): Promise<unknown>;
   reconnectMqtt(resume?: Omit<StatusStep, "action">): Promise<void>;
-  setPlaceholder(buffer: Buffer): void;
+  setCameraPlaceholder(buffer: Buffer): void;
+  setProjectPlaceholder(buffer: Buffer): void;
   snapshot(): ScenarioSessionSnapshot;
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -186,7 +187,10 @@ export class WebBenchController {
   private session?: ScenarioSessionContract;
   private sessionConfiguration?: SessionConfiguration;
   private target?: DiscordTargetDetails;
-  private placeholder: Buffer = Buffer.from(DEFAULT_PLACEHOLDER);
+  private readonly placeholders: Record<PlaceholderKind, Buffer> = {
+    camera: Buffer.from(DEFAULT_CAMERA_PLACEHOLDER),
+    project: Buffer.from(DEFAULT_PROJECT_PLACEHOLDER)
+  };
   private timeline: PrinterScenario = {
     version: 1,
     name: "interactive-web-session",
@@ -400,14 +404,24 @@ export class WebBenchController {
     });
   }
 
-  public upload(buffer: Buffer, contentType: string): void {
-    this.placeholder = parseImage(buffer, contentType);
-    this.session?.setPlaceholder(this.placeholder);
-    this.record("admin", "Placeholder remplacé", "succeeded", `${buffer.length} octets`);
+  public upload(kind: PlaceholderKind, buffer: Buffer, contentType: string): void {
+    const placeholder = parseImage(buffer, contentType);
+    this.placeholders[kind] = placeholder;
+    if (kind === "project") {
+      this.session?.setProjectPlaceholder(placeholder);
+    } else {
+      this.session?.setCameraPlaceholder(placeholder);
+    }
+    this.record(
+      "admin",
+      kind === "project" ? "Placeholder projet remplacé" : "Placeholder caméra remplacé",
+      "succeeded",
+      `${buffer.length} octets`
+    );
   }
 
-  public getPlaceholder(): Buffer {
-    return Buffer.from(this.placeholder);
+  public getPlaceholder(kind: PlaceholderKind): Buffer {
+    return Buffer.from(this.placeholders[kind]);
   }
 
   public importScenario(value: unknown): PrinterScenario {
@@ -488,7 +502,8 @@ export class WebBenchController {
       timeScale: 1 / configuration.speed,
       ...(configuration.discordEnabled && this.discord ? { discord: this.discord } : {})
     });
-    session.setPlaceholder(this.placeholder);
+    session.setProjectPlaceholder(this.placeholders.project);
+    session.setCameraPlaceholder(this.placeholders.camera);
     try {
       await session.start();
       this.session = session;

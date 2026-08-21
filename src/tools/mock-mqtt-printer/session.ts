@@ -1,5 +1,5 @@
 import { ChannelType } from "discord.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -30,6 +30,8 @@ export const DEFAULT_SCENARIO_PRINTER = {
   serial: "MOCK_SCENARIO_SERIAL",
   accessCode: "mock-scenario-access-code"
 } as const;
+export const DEFAULT_PROJECT_PLACEHOLDER = readFileSync(join(__dirname, "web", "default-project-placeholder.png"));
+export const DEFAULT_CAMERA_PLACEHOLDER = readFileSync(join(__dirname, "web", "default-camera-placeholder.png"));
 
 export interface DiscordE2EOptions {
   forumChannelId: string;
@@ -56,6 +58,7 @@ export interface ScenarioSessionOptions {
 }
 
 export interface ScenarioNotification {
+  attachmentSizes?: number[];
   deleted?: boolean;
   id: string;
   kind: "message" | "thread";
@@ -86,16 +89,16 @@ class ScenarioBambuLabClient extends BambuLabClient {
     config: PrinterConfig,
     reconnectPeriodMs: number,
     private readonly captureDelayMs: number,
-    private readonly getPlaceholder: () => Buffer | undefined,
+    private readonly getProjectPlaceholder: () => Buffer,
+    private readonly getCameraPlaceholder: () => Buffer,
     private readonly recordStatus: (status: Status) => void
   ) {
     super(config, 5_000, { protocol: "mqtt", reconnectPeriodMs });
   }
 
   public override async emitStatus(status: Status, oldStatus: Status): Promise<void> {
-    const placeholder = this.getPlaceholder();
-    if (placeholder && status.projectImage === undefined) {
-      status.projectImage = Buffer.from(placeholder);
+    if (status.projectImage === undefined) {
+      status.projectImage = Buffer.from(this.getProjectPlaceholder());
     }
     this.recordStatus(status);
     await super.emitStatus(status, oldStatus);
@@ -105,8 +108,7 @@ class ScenarioBambuLabClient extends BambuLabClient {
     if (this.captureDelayMs > 0) {
       await new Promise(resolve => setTimeout(resolve, this.captureDelayMs));
     }
-    const placeholder = this.getPlaceholder();
-    return placeholder ? Buffer.from(placeholder) : null;
+    return Buffer.from(this.getCameraPlaceholder());
   }
 }
 
@@ -125,12 +127,14 @@ class DeliveryRecorder {
       : ({ status: "sent", value: { threadId: `mock-thread-${this.nextThread++}` } } as const);
     const threadId = result.value?.threadId;
     if (threadId) {
+      const attachmentSizes = input.files?.flatMap(file => (file.buffer ? [file.buffer.length] : [])) ?? [];
       this.record({
         id: threadId,
         kind: "thread",
         tags: input.tags,
         threadId,
         title: input.embed.data.title ?? input.title,
+        ...(attachmentSizes.length > 0 ? { attachmentSizes } : {}),
         ...(this.discord ? { url: `https://discord.com/channels/${this.discord.guildId}/${threadId}` } : {})
       });
     }
@@ -145,12 +149,14 @@ class DeliveryRecorder {
       : ({ status: "sent", value: { messageId: `mock-message-${this.nextMessage++}` } } as const);
     const messageId = result.value?.messageId;
     if (messageId) {
+      const attachmentSizes = input.files?.flatMap(file => (file.buffer ? [file.buffer.length] : [])) ?? [];
       this.record({
         id: messageId,
         kind: "message",
         tags: input.tags,
         threadId: input.threadId,
         title: input.embed.data.title ?? "Notification",
+        ...(attachmentSizes.length > 0 ? { attachmentSizes } : {}),
         ...(this.discord
           ? { url: `https://discord.com/channels/${this.discord.guildId}/${input.threadId}/${messageId}` }
           : {})
@@ -244,7 +250,8 @@ export class ScenarioSession {
   private readonly activeThreads = new Map<string, ActivePrintThread>();
   private manager?: PrinterManager;
   private config?: PrinterConfig;
-  private placeholder?: Buffer;
+  private projectPlaceholder = Buffer.from(DEFAULT_PROJECT_PLACEHOLDER);
+  private cameraPlaceholder = Buffer.from(DEFAULT_CAMERA_PLACEHOLDER);
   private latestStatus?: Status;
   private discordStarted = false;
   private started = false;
@@ -345,16 +352,20 @@ export class ScenarioSession {
     }
   }
 
-  public setPlaceholder(buffer: Buffer): void {
-    this.placeholder = Buffer.from(buffer);
+  public setProjectPlaceholder(buffer: Buffer): void {
+    this.projectPlaceholder = Buffer.from(buffer);
   }
 
-  public getPlaceholder(): Buffer | undefined {
-    return this.placeholder ? Buffer.from(this.placeholder) : undefined;
+  public setCameraPlaceholder(buffer: Buffer): void {
+    this.cameraPlaceholder = Buffer.from(buffer);
   }
 
   public getNotifications(): ScenarioNotification[] {
-    return this.recorder.notifications.map(notification => ({ ...notification, tags: [...notification.tags] }));
+    return this.recorder.notifications.map(notification => ({
+      ...notification,
+      tags: [...notification.tags],
+      ...(notification.attachmentSizes ? { attachmentSizes: [...notification.attachmentSizes] } : {})
+    }));
   }
 
   public getPrinterStatus(): PrinterStatusView {
@@ -390,7 +401,7 @@ export class ScenarioSession {
         paused: this.printer.isPaused
       },
       discordMode: this.discord ? "discord-e2e" : "mock-discord",
-      mediaConfigured: this.placeholder !== undefined,
+      mediaConfigured: true,
       ...(current
         ? {
             current: {
@@ -534,7 +545,8 @@ export class ScenarioSession {
           clientConfig,
           Math.max(10, Math.round(5_000 * this.timeScale)),
           this.captureDelayMs,
-          () => this.placeholder,
+          () => this.projectPlaceholder,
+          () => this.cameraPlaceholder,
           status => {
             this.latestStatus = { ...status };
           }

@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PrintState } from "../src/enums";
 import type { PrinterScenario, ScenarioStep, StatusStep } from "../src/tools/mock-mqtt-printer/scenario";
-import type {
-  DiscordTargetDetails,
-  ScenarioSessionOptions,
-  ScenarioSessionSnapshot
+import {
+  DEFAULT_CAMERA_PLACEHOLDER,
+  DEFAULT_PROJECT_PLACEHOLDER,
+  type DiscordTargetDetails,
+  type ScenarioSessionOptions,
+  type ScenarioSessionSnapshot
 } from "../src/tools/mock-mqtt-printer/session";
 import { WebBenchController } from "../src/tools/mock-mqtt-printer/web-controller";
 import { type RunningWebBenchServer, startWebBenchServer } from "../src/tools/mock-mqtt-printer/web-server";
@@ -28,7 +30,8 @@ class FakeSession {
   public readonly playedSteps: ScenarioStep[][] = [];
   public readonly deletedThreads: string[] = [];
   public disconnected = false;
-  public placeholder?: Buffer;
+  public cameraPlaceholder?: Buffer;
+  public projectPlaceholder?: Buffer;
   public started = false;
   public stopped = false;
   private current: ScenarioSessionSnapshot["current"];
@@ -55,7 +58,7 @@ class FakeSession {
         this.current = {
           state: PrintState.PREPARE,
           project: typeof step.payload?.subtask_name === "string" ? step.payload.subtask_name : undefined,
-          hasProjectImage: this.placeholder !== undefined
+          hasProjectImage: this.projectPlaceholder !== undefined
         };
       } else if (step.action === "status") {
         this.applyStatus(step);
@@ -74,8 +77,12 @@ class FakeSession {
     }
   }
 
-  public setPlaceholder(buffer: Buffer): void {
-    this.placeholder = Buffer.from(buffer);
+  public setProjectPlaceholder(buffer: Buffer): void {
+    this.projectPlaceholder = Buffer.from(buffer);
+  }
+
+  public setCameraPlaceholder(buffer: Buffer): void {
+    this.cameraPlaceholder = Buffer.from(buffer);
   }
 
   public snapshot(): ScenarioSessionSnapshot {
@@ -85,7 +92,7 @@ class FakeSession {
       printer: { ...printer, ...this.options.printer },
       mqtt: { host: "127.0.0.1", port: 18_883, paused: this.disconnected, pushallCount: 1 },
       discordMode: this.options.discord ? "discord-e2e" : "mock-discord",
-      mediaConfigured: this.placeholder !== undefined,
+      mediaConfigured: this.projectPlaceholder !== undefined && this.cameraPlaceholder !== undefined,
       ...(this.current ? { current: { ...this.current } } : {}),
       notifications: []
     };
@@ -104,7 +111,7 @@ class FakeSession {
       ...(typeof payload.layer_num === "number" ? { currentLayer: payload.layer_num } : {}),
       ...(typeof payload.total_layer_num === "number" ? { maxLayers: payload.total_layer_num } : {}),
       ...(typeof payload.mc_remaining_time === "number" ? { remainingTime: payload.mc_remaining_time } : {}),
-      hasProjectImage: this.placeholder !== undefined
+      hasProjectImage: this.projectPlaceholder !== undefined
     };
   }
 }
@@ -157,7 +164,8 @@ describe("web bench controller", () => {
 
     expect(sessions).toHaveLength(1);
     expect(sessions[0]?.options).toMatchObject({ printer, timeScale: 0.01 });
-    expect(sessions[0]?.placeholder?.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    expect(sessions[0]?.projectPlaceholder).toEqual(DEFAULT_PROJECT_PLACEHOLDER);
+    expect(sessions[0]?.cameraPlaceholder).toEqual(DEFAULT_CAMERA_PLACEHOLDER);
     expect(controller.exportScenario().steps).toEqual([
       { action: "project", payload: { subtask_name: "Benchy" } },
       { action: "status", state: PrintState.RUNNING, payload: { mc_percent: 25 } }
@@ -248,15 +256,16 @@ describe("web bench controller", () => {
         steps: [{ action: "burst", count: 10_001, messages: [{ action: "status", state: "RUNNING" }] }]
       })
     ).rejects.toThrow("between 1 and 10000");
-    expect(() => controller.upload(Buffer.from("not an image"), "image/png")).toThrow("valid PNG or JPEG");
-    expect(() => controller.upload(Buffer.alloc(10 * 1024 * 1024 + 1), "image/jpeg")).toThrow(
+    expect(() => controller.upload("project", Buffer.from("not an image"), "image/png")).toThrow("valid PNG or JPEG");
+    expect(() => controller.upload("camera", Buffer.alloc(10 * 1024 * 1024 + 1), "image/jpeg")).toThrow(
       "Discord attachment limit"
     );
 
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
-    controller.upload(jpeg, "image/jpeg");
-    expect(controller.getPlaceholder()).toEqual(jpeg);
-    expect(controller.state().history.at(-1)).toMatchObject({ kind: "admin", label: "Placeholder remplacé" });
+    controller.upload("project", jpeg, "image/jpeg");
+    expect(controller.getPlaceholder("project")).toEqual(jpeg);
+    expect(controller.getPlaceholder("camera")).toEqual(DEFAULT_CAMERA_PLACEHOLDER);
+    expect(controller.state().history.at(-1)).toMatchObject({ kind: "admin", label: "Placeholder projet remplacé" });
     await controller.close();
   });
 
@@ -379,7 +388,12 @@ describe("web bench HTTP adapter", () => {
     expect(action.status).toBe(200);
     expect(await action.json()).toMatchObject({ session: { current: { state: "RUNNING" } } });
 
-    const badUpload = await fetch(`${base}/api/placeholder`, {
+    const defaultProject = await fetch(`${base}/api/placeholder/project`);
+    const defaultCamera = await fetch(`${base}/api/placeholder/camera`);
+    expect(Buffer.from(await defaultProject.arrayBuffer())).toEqual(DEFAULT_PROJECT_PLACEHOLDER);
+    expect(Buffer.from(await defaultCamera.arrayBuffer())).toEqual(DEFAULT_CAMERA_PLACEHOLDER);
+
+    const badUpload = await fetch(`${base}/api/placeholder/project`, {
       method: "PUT",
       headers: { "x-mock-printer-ui": "1", "content-type": "image/png" },
       body: "invalid"
@@ -388,13 +402,13 @@ describe("web bench HTTP adapter", () => {
     expect(await badUpload.json()).toEqual({ error: "image must be a valid PNG or JPEG" });
 
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
-    const uploaded = await fetch(`${base}/api/placeholder`, {
+    const uploaded = await fetch(`${base}/api/placeholder/camera`, {
       method: "PUT",
       headers: { "x-mock-printer-ui": "1", "content-type": "image/jpeg" },
       body: jpeg
     });
     expect(uploaded.status).toBe(200);
-    const placeholder = await fetch(`${base}/api/placeholder`);
+    const placeholder = await fetch(`${base}/api/placeholder/camera`);
     expect(placeholder.headers.get("content-type")).toBe("image/jpeg");
     expect(Buffer.from(await placeholder.arrayBuffer())).toEqual(jpeg);
 
@@ -433,6 +447,13 @@ describe.sequential("web bench real engine integration", () => {
           expect.arrayContaining(["Démarrage de l'impression", "Impression terminée"])
         );
       });
+      const notifications = controller.state().session?.notifications ?? [];
+      expect(notifications.find(notification => notification.kind === "thread")?.attachmentSizes).toContain(
+        DEFAULT_PROJECT_PLACEHOLDER.length
+      );
+      expect(
+        notifications.find(notification => notification.title === "Impression terminée")?.attachmentSizes
+      ).toContain(DEFAULT_CAMERA_PLACEHOLDER.length);
     } finally {
       await controller.close();
     }

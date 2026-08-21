@@ -71,13 +71,41 @@
         </div>
 
         <div class="setup-lower">
-          <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Choisir une image placeholder">
-            <img id="placeholder-preview" src="/api/placeholder" alt="Placeholder des notifications" />
+          <div
+            class="dropzone"
+            id="project-dropzone"
+            tabindex="0"
+            role="button"
+            aria-label="Choisir l’image placeholder du projet"
+          >
+            <img
+              id="project-placeholder-preview"
+              src="/api/placeholder/project"
+              alt="Cube bleu utilisé comme placeholder du plateau"
+            />
             <div>
-              <strong>Placeholder notification</strong>
+              <strong>Image projet / plateau</strong>
               <p>PNG ou JPEG, 10 Mio maximum. Cliquez ou déposez une image.</p>
             </div>
-            <input id="placeholder-input" type="file" accept="image/png,image/jpeg" hidden />
+            <input id="project-placeholder-input" type="file" accept="image/png,image/jpeg" hidden />
+          </div>
+          <div
+            class="dropzone"
+            id="camera-dropzone"
+            tabindex="0"
+            role="button"
+            aria-label="Choisir l’image placeholder de la caméra"
+          >
+            <img
+              id="camera-placeholder-preview"
+              src="/api/placeholder/camera"
+              alt="Capture utilisée comme placeholder de la caméra"
+            />
+            <div>
+              <strong>Capture caméra</strong>
+              <p>PNG ou JPEG, 10 Mio maximum. Cliquez ou déposez une image.</p>
+            </div>
+            <input id="camera-placeholder-input" type="file" accept="image/png,image/jpeg" hidden />
           </div>
           <div class="discord-config" id="discord-config">
             <label class="switch-row">
@@ -323,7 +351,7 @@
     </main>
 
     <footer>
-      <p>Le placeholder est injecté dans les notifications. Aucun serveur RTC/TLS caméra n’est simulé.</p>
+      <p>Les placeholders projet et caméra sont injectés dans les notifications. Aucun serveur RTC/TLS n’est simulé.</p>
       <p>Le protocole caméra reste couvert par les tests socket; la lumière physique exige une imprimante réelle.</p>
     </footer>
     <script src="/app.js" type="module"></script>

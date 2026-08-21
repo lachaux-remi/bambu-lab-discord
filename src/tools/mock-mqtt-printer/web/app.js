@@ -470,48 +470,57 @@ element("reconnect").addEventListener("click", () => {
   ).catch(() => undefined);
 });
 
-const dropzone = element("dropzone");
-const fileInput = element("placeholder-input");
-const uploadPlaceholder = async file => {
-  const state = await request("/api/placeholder", {
-    method: "PUT",
-    headers: { ...MUTATION_HEADERS, "content-type": file.type },
-    body: file
+const configurePlaceholderUpload = kind => {
+  const dropzone = element(`${kind}-dropzone`);
+  const fileInput = element(`${kind}-placeholder-input`);
+  const uploadPlaceholder = async file => {
+    const state = await request(`/api/placeholder/${kind}`, {
+      method: "PUT",
+      headers: { ...MUTATION_HEADERS, "content-type": file.type },
+      body: file
+    });
+    const preview = element(`${kind}-placeholder-preview`);
+    const objectUrl = URL.createObjectURL(file);
+    preview.addEventListener("load", () => URL.revokeObjectURL(objectUrl), { once: true });
+    preview.src = objectUrl;
+    render(state);
+  };
+  dropzone.addEventListener("click", () => fileInput.click());
+  dropzone.addEventListener("keydown", event => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      fileInput.click();
+    }
   });
-  element("placeholder-preview").src = `${URL.createObjectURL(file)}`;
-  render(state);
+  for (const type of ["dragenter", "dragover"]) {
+    dropzone.addEventListener(type, event => {
+      event.preventDefault();
+      dropzone.classList.add("dragging");
+    });
+  }
+  for (const type of ["dragleave", "drop"]) {
+    dropzone.addEventListener(type, event => {
+      event.preventDefault();
+      dropzone.classList.remove("dragging");
+    });
+  }
+  dropzone.addEventListener("drop", event => {
+    const file = event.dataTransfer.files[0];
+    if (file) {
+      void run(() => uploadPlaceholder(file)).catch(() => undefined);
+    }
+  });
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files[0];
+    if (file) {
+      void run(() => uploadPlaceholder(file)).catch(() => undefined);
+    }
+  });
 };
-dropzone.addEventListener("click", () => fileInput.click());
-dropzone.addEventListener("keydown", event => {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    fileInput.click();
-  }
-});
-for (const type of ["dragenter", "dragover"]) {
-  dropzone.addEventListener(type, event => {
-    event.preventDefault();
-    dropzone.classList.add("dragging");
-  });
+
+for (const kind of ["project", "camera"]) {
+  configurePlaceholderUpload(kind);
 }
-for (const type of ["dragleave", "drop"]) {
-  dropzone.addEventListener(type, event => {
-    event.preventDefault();
-    dropzone.classList.remove("dragging");
-  });
-}
-dropzone.addEventListener("drop", event => {
-  const file = event.dataTransfer.files[0];
-  if (file) {
-    void run(() => uploadPlaceholder(file)).catch(() => undefined);
-  }
-});
-fileInput.addEventListener("change", () => {
-  const file = fileInput.files[0];
-  if (file) {
-    void run(() => uploadPlaceholder(file)).catch(() => undefined);
-  }
-});
 
 element("scenario-editor").addEventListener("input", () => {
   editorDirty = true;
