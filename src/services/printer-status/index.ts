@@ -9,13 +9,53 @@ import { isMulticolorPrint } from "../../utils/print.util";
 import BambuLabClient from "../bambu-lab";
 
 const logger = getLogger("PrinterStatus");
+const PROJECT_IMAGE_ABORTED = Symbol("projectImageAborted");
+
+const extractProjectImageUntilAbort = (
+  data: Parameters<typeof extractProjectImage>[0],
+  signal?: AbortSignal
+): Promise<Buffer | null | typeof PROJECT_IMAGE_ABORTED> => {
+  if (!signal) {
+    return extractProjectImage(data);
+  }
+  if (signal.aborted) {
+    return Promise.resolve(PROJECT_IMAGE_ABORTED);
+  }
+
+  const extraction = extractProjectImage(data);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const onAbort = () => {
+      settled = true;
+      resolve(PROJECT_IMAGE_ABORTED);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    void extraction.then(
+      image => {
+        if (!settled) {
+          settled = true;
+          signal.removeEventListener("abort", onAbort);
+          resolve(image);
+        }
+      },
+      error => {
+        if (!settled) {
+          settled = true;
+          signal.removeEventListener("abort", onAbort);
+          reject(error);
+        }
+      }
+    );
+  });
+};
 
 export default class PrinterStatus {
   private latestStatus: Status = {};
 
   public constructor(private client: BambuLabClient) {}
 
-  public async onUpdate(data: PrintMessageCommand): Promise<void> {
+  public async onUpdate(data: PrintMessageCommand, signal?: AbortSignal): Promise<void> {
     const newStatus: Status = {};
 
     if (data.command === MessageCommand.PROJECT_FILE) {
@@ -47,10 +87,17 @@ export default class PrinterStatus {
       }
 
       if (data.url && data.url.startsWith("https://") && data.plate_idx !== undefined) {
-        newStatus.projectImage = await extractProjectImage({
-          url: data.url,
-          plate: String(data.plate_idx) as StringNumber
-        });
+        const projectImage = await extractProjectImageUntilAbort(
+          {
+            url: data.url,
+            plate: String(data.plate_idx) as StringNumber
+          },
+          signal
+        );
+        if (projectImage === PROJECT_IMAGE_ABORTED || signal?.aborted) {
+          return;
+        }
+        newStatus.projectImage = projectImage;
       }
 
       newStatus.state = PrintState.PREPARE;
