@@ -1,7 +1,7 @@
 ARG NODE_VERSION=24.15.0
 ARG PNPM_VERSION=11.0.9
 
-FROM node:${NODE_VERSION}-alpine AS base
+FROM node:${NODE_VERSION}-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS base
 
 WORKDIR /usr/src/app
 

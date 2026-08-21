@@ -14,28 +14,50 @@ run_step() {
 }
 
 install_node() (
-  local architecture archive download_url temporary_archive
+  local architecture archive checksum download_url temporary_directory staged_home backup_home
 
   case "$(uname -m)" in
-    x86_64) architecture="x64" ;;
-    aarch64 | arm64) architecture="arm64" ;;
+    x86_64)
+      architecture="x64"
+      checksum="472655581fb851559730c48763e0c9d3bc25975c59d518003fc0849d3e4ba0f6"
+      ;;
+    aarch64 | arm64)
+      architecture="arm64"
+      checksum="f3d5a797b5d210ce8e2cb265544c8e482eaedcb8aa409a8b46da7e8595d0dda0"
+      ;;
     *) echo "Unsupported architecture: $(uname -m)" >&2; return 1 ;;
   esac
 
   archive="node-v$node_version-linux-$architecture.tar.xz"
   download_url="https://nodejs.org/dist/v$node_version/$archive"
-  temporary_archive="$(mktemp)"
-  trap 'rm -f "$temporary_archive"' EXIT
+  temporary_directory="$(mktemp -d "$HOME/.local/share/node-v$node_version.tmp.XXXXXX")"
+  staged_home="$temporary_directory/node"
+  backup_home="$temporary_directory/previous-node"
+  trap 'rm -rf "$temporary_directory"' EXIT
 
-  curl --fail --location --silent --show-error "$download_url" --output "$temporary_archive"
-  rm -rf "$node_home"
-  mkdir -p "$node_home"
-  tar -xJf "$temporary_archive" --strip-components=1 -C "$node_home"
+  curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+    "$download_url" --output "$temporary_directory/$archive"
+  printf '%s  %s\n' "$checksum" "$temporary_directory/$archive" | sha256sum --check --strict
+
+  mkdir "$staged_home"
+  tar -xJf "$temporary_directory/$archive" --strip-components=1 -C "$staged_home"
+  [[ "$("$staged_home/bin/node" --version)" == "v$node_version" ]]
+
+  if [[ -e "$node_home" ]]; then
+    mv "$node_home" "$backup_home"
+  fi
+  if ! mv "$staged_home" "$node_home"; then
+    if [[ -e "$backup_home" ]]; then
+      mv "$backup_home" "$node_home"
+    fi
+    return 1
+  fi
+  rm -rf "$backup_home"
 )
 
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share"
 
-if [[ ! -x "$node_home/bin/node" ]] || [[ "$($node_home/bin/node --version)" != "v$node_version" ]]; then
+if [[ ! -x "$node_home/bin/node" ]] || [[ "$("$node_home/bin/node" --version)" != "v$node_version" ]]; then
   run_step "Installing Node.js $node_version" install_node
 else
   echo "==> Node.js $node_version is already installed"
@@ -43,7 +65,7 @@ fi
 
 export PATH="$node_home/bin:$HOME/.local/bin:$PATH"
 
-if [[ ! -x "$node_home/bin/pnpm" ]] || [[ "$($node_home/bin/pnpm --version)" != "$pnpm_version" ]]; then
+if [[ ! -x "$node_home/bin/pnpm" ]] || [[ "$("$node_home/bin/pnpm" --version)" != "$pnpm_version" ]]; then
   run_step "Installing pnpm $pnpm_version" npm install --global "pnpm@$pnpm_version"
 else
   echo "==> pnpm $pnpm_version is already installed"
