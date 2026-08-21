@@ -86,6 +86,68 @@ describe("safe MQTT capture", () => {
     expect(lines[0]).not.toContain("  ");
   });
 
+  it("fails closed for strings from unknown firmware fields in captures and summaries", () => {
+    const sensitiveStrings = [
+      "ARBITRARY-FIRMWARE-SENTINEL",
+      "operator@example.invalid",
+      "Workshop Wi-Fi",
+      "Office Printer",
+      "printer.lan/private/diagnostic",
+      "UNKNOWN-CREDENTIAL-SENTINEL",
+      "UNKNOWN-IDENTIFIER-SENTINEL"
+    ] as const;
+    const payload = {
+      print: {
+        command: "push_status",
+        gcode_state: "RUNNING",
+        result: "success",
+        lights_report: [{ node: "chamber_light", mode: "on" }],
+        mc_percent: 42,
+        firmware_ready: true,
+        firmware_note: sensitiveStrings[0],
+        contact: sensitiveStrings[1],
+        wifi_ssid: sensitiveStrings[2],
+        device_label: sensitiveStrings[3],
+        endpoint: sensitiveStrings[4],
+        opaque_value: sensitiveStrings[5],
+        future_device_id: sensitiveStrings[6]
+      }
+    };
+    const taintedSummaryPayload = {
+      print: {
+        command: sensitiveStrings[0],
+        gcode_state: sensitiveStrings[1],
+        result: sensitiveStrings[2],
+        lights_report: [{ node: sensitiveStrings[5], mode: sensitiveStrings[6] }],
+        subtask_name: sensitiveStrings[3],
+        ams_mapping: [sensitiveStrings[4], sensitiveStrings[5], sensitiveStrings[6]]
+      }
+    };
+    const sanitize = createCaptureSanitizer("fixed-test-salt");
+
+    const record = createCaptureRecord(Buffer.from(JSON.stringify(payload)), "2026-08-20T10:00:00.000Z", sanitize);
+    const taintedSummaryRecord = createCaptureRecord(
+      Buffer.from(JSON.stringify(taintedSummaryPayload)),
+      "2026-08-20T10:00:01.000Z",
+      sanitize
+    );
+    const ndjson = `${formatCaptureRecord(record)}${formatCaptureRecord(taintedSummaryRecord)}`;
+    const consoleOutput = `${formatConsoleSummary(record)}\n${formatConsoleSummary(taintedSummaryRecord)}`;
+
+    for (const sensitiveString of sensitiveStrings) {
+      expect(ndjson).not.toContain(sensitiveString);
+      expect(consoleOutput).not.toContain(sensitiveString);
+    }
+    expect(ndjson).toContain('"command":"push_status"');
+    expect(ndjson).toContain('"gcode_state":"RUNNING"');
+    expect(ndjson).toContain('"result":"success"');
+    expect(ndjson).toContain('"lights_report":[{"node":"chamber_light","mode":"on"}]');
+    expect(ndjson).toContain('"mc_percent":42');
+    expect(ndjson).toContain('"firmware_ready":true');
+    expect(consoleOutput).toContain("command=push_status");
+    expect(consoleOutput).toContain("state=RUNNING");
+  });
+
   it("sanitizes residual liveview and print identifiers while preserving multicolor mappings", () => {
     const payload = {
       liveview: {

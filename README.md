@@ -191,15 +191,14 @@ parallèle `mqtt-debug-<timestamp>.ndjson` dans le répertoire courant : une lig
 directement comme fixture. Un message JSON invalide est remplacé par sa longueur et son SHA-256; son contenu brut n'est
 jamais écrit.
 
-La capture supprime récursivement les credentials connus (codes d'accès, mots de passe, tokens, autorisations, clés,
-signatures et URLs), et pseudonymise avec un sel aléatoire propre à la capture les IP, serials, identifiants et noms de
-projets. Un même identifiant garde le même pseudonyme pendant une capture, ce qui préserve les corrélations. Les
-variables de connexion, le broker et les topics ne sont jamais inclus dans le fichier ou les logs.
+La capture applique un filtre récursif fermé par défaut. Elle conserve la structure, les nombres, les booléens et une
+liste minimale de valeurs textuelles du protocole nécessaires au diagnostic (commandes, états, résultats et états de
+l'éclairage). Toute autre valeur textuelle est masquée ou reçoit un pseudonyme stable dérivé d'un sel aléatoire propre
+à la capture. Les IP, serials, identifiants, noms de projets et chaînes inconnues restent ainsi corrélables pendant une
+capture sans révéler leur valeur ; les credentials et URLs sont masqués.
 
-Le filtre conserve volontairement les autres champs MQTT afin que la capture reste utile au diagnostic. Comme toute
-anonymisation fondée sur les noms de champs et la forme des valeurs, il ne peut pas garantir de reconnaître une chaîne
-secrète arbitraire placée par un futur firmware sous une clé inconnue. Vérifiez donc la capture avant de la partager si
-elle provient d'un firmware ou d'un plugin non pris en charge. Le fichier généré est ignoré par Git.
+Les variables de connexion, le broker et les topics ne sont jamais inclus dans le fichier ou les logs. Le fichier est
+créé avec le mode `0600`, reste ignoré par Git et peut être partagé comme fixture sanitisée.
 
 `pnpm run debug:discord-test` nécessite également `TEST_FORUM_CHANNEL_ID`. Il crée réellement un post de test public,
 envoie un message et modifie ses tags dans ce forum ; ne l'utilisez pas sur un serveur où cet effet est indésirable.
