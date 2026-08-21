@@ -8,8 +8,8 @@ import { getLogger } from "../../libs/logger";
 import { takeScreenshot } from "../../libs/rtc";
 import type { ClientEvents } from "../../types/client-events";
 import type { PrinterConfig } from "../../types/printer-config";
-import type { PrintMessage } from "../../types/printer-messages";
 import PrinterStatus from "../printer-status";
+import { parsePrintMessage } from "./print-message-parser";
 
 const logger = getLogger("BambuLab");
 const configuredConnectTimeoutMs = Number(process.env.MQTT_CONNECT_TIMEOUT_MS);
@@ -483,8 +483,8 @@ export default class BambuLabClient extends EventEmitter {
     let parsedData: unknown;
     try {
       parsedData = JSON.parse(packet);
-    } catch (error) {
-      logger.error({ error, packetLength: packet.length }, "Failed to parse MQTT message");
+    } catch {
+      logger.error({ packetLength: packet.length }, "Failed to parse MQTT message");
       return;
     }
 
@@ -493,36 +493,26 @@ export default class BambuLabClient extends EventEmitter {
       return;
     }
 
-    const data = parsedData as Record<string, unknown>;
-
-    const key = Object.keys(data)[0];
+    const key = Object.keys(parsedData)[0];
 
     logger.debug({ key }, "Received message");
 
+    const message = parsePrintMessage(parsedData);
+    if (!message) {
+      logger.debug({ keys: Object.keys(parsedData) }, "Message not recognized as print message");
+      return;
+    }
+
     // Track chamber light state from lights_report
-    const printData = data.print as Record<string, unknown> | undefined;
-    if (Array.isArray(printData?.lights_report)) {
-      const lightsReport = printData.lights_report as Array<{ node: LightNode; mode: LightMode }>;
-      const chamberLight = lightsReport.find(light => light.node === LightNode.CHAMBER);
+    if (message.print.command === MessageCommand.PUSH_STATUS && message.print.lights_report) {
+      const chamberLight = message.print.lights_report.find(light => light.node === LightNode.CHAMBER);
       if (chamberLight) {
         this.chamberLightOn = chamberLight.mode === LightMode.ON;
         logger.debug({ printer: this.config.name, chamberLightOn: this.chamberLightOn }, "Chamber light state updated");
       }
     }
 
-    if (this.isPrintMessage(data)) {
-      logger.debug({ command: data.print.command }, "Processing print message");
-      await this.printerStatus?.onUpdate(data.print);
-    } else {
-      logger.debug({ keys: Object.keys(data), hasprint: !!data.print }, "Message not recognized as print message");
-    }
-  }
-
-  protected isPrintMessage(data: Partial<PrintMessage>): data is PrintMessage {
-    return (
-      !!data?.print &&
-      !!data?.print?.command &&
-      [MessageCommand.PUSH_STATUS, MessageCommand.PROJECT_FILE, MessageCommand.STOP].includes(data.print.command)
-    );
+    logger.debug({ command: message.print.command }, "Processing print message");
+    await this.printerStatus?.onUpdate(message.print);
   }
 }

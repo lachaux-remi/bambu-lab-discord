@@ -1,13 +1,12 @@
 import type { MessageCommand } from "../enums";
 import type { StringNumber } from "./general";
-import type { PrintMessageCommand } from "./printer-messages";
 
 export interface AmsMappingSlot {
   ams_id: number;
   slot_id: number;
 }
 
-export interface ProjectFileCommand extends PrintMessageCommand {
+export interface ProjectFileCommand {
   command: MessageCommand.PROJECT_FILE;
   subtask_id?: string | number;
   task_id?: string | number;

@@ -42,7 +42,7 @@ describe("real multicolor MQTT print cycle", () => {
       maxLayers: 26,
       progressPercent: 100
     });
-    expect(getInitialDiscordTags(emittedStatuses[2].isMulticolor)).toEqual(["En cours", "Multicolore"]);
+    expect(getInitialDiscordTags(emittedStatuses[2].isMulticolor ?? false)).toEqual(["En cours", "Multicolore"]);
     expect(getDiscordTagsForStatus(emittedStatuses.at(-1) as Status)).toEqual(["Multicolore", "Réussi"]);
   });
 });

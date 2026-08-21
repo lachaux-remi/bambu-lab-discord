@@ -2,8 +2,24 @@ import { describe, expect, it } from "vitest";
 
 import { PrintState } from "../src/enums";
 import { getDiscordTagsForStatus, getInitialDiscordTags } from "../src/utils/discord-tags.util";
+import { normalizePrintIdentity } from "../src/utils/print-identity.util";
 import { getFilamentCount, isMulticolorPrint, isMulticolorPrintV2 } from "../src/utils/print.util";
 import { formatMinuteToBestDisplay, timeDiffInMinutes } from "../src/utils/time.util";
+
+describe("print identity utilities", () => {
+  it.each([
+    [undefined, undefined, undefined],
+    ["", undefined, undefined],
+    ["   ", undefined, undefined],
+    [0, undefined, "0"],
+    ["0", undefined, "0"],
+    [42, "42", "42"],
+    ["print-42", "print-42", "print-42"]
+  ] as const)("normalizes identity value %j", (value, expectedId, expectedText) => {
+    expect(normalizePrintIdentity(value, true)).toBe(expectedId);
+    expect(normalizePrintIdentity(value, false)).toBe(expectedText);
+  });
+});
 
 describe("print utilities", () => {
   it.each([
