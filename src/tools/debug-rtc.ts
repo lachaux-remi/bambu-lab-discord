@@ -9,8 +9,8 @@
  *   Test natif Bambu protocol
  * - Or it will test all configured printers
  */
-import { writeFileSync } from "fs";
-import { join } from "path";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { getLogger } from "../libs/logger";
 import { takeScreenshot } from "../libs/rtc";
@@ -18,9 +18,11 @@ import { getAllPrinters } from "../services/database";
 
 const logger = getLogger("RTC-Debug");
 
-const saveScreenshot = (buffer: Buffer): string => {
-  const filename = join(process.cwd(), `rtc-debug-${Date.now()}.jpg`);
-  writeFileSync(filename, buffer);
+export const saveScreenshot = (
+  buffer: Buffer,
+  filename = join(process.cwd(), `rtc-debug-${Date.now()}.jpg`)
+): string => {
+  writeFileSync(filename, buffer, { flag: "wx", mode: 0o600 });
   return filename;
 };
 
@@ -45,7 +47,7 @@ const testNativeProtocol = async (
   return false;
 };
 
-(async () => {
+export const runRtcDebug = async (): Promise<void> => {
   logger.info("🎥 Starting RTC debug test...");
 
   // Option 1: Test from environment variables
@@ -98,4 +100,8 @@ const testNativeProtocol = async (
   }
 
   process.exit(failCount > 0 ? 1 : 0);
-})();
+};
+
+if (require.main === module) {
+  void runRtcDebug();
+}

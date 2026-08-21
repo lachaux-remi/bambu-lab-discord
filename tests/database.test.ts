@@ -18,6 +18,7 @@ vi.mock("../src/libs/logger", () => ({ getLogger: () => loggerMock }));
 const fsTracking = vi.hoisted(() => ({
   descriptorPaths: new Map<number, string>(),
   directoryFsyncError: undefined as NodeJS.ErrnoException | undefined,
+  renameError: undefined as NodeJS.ErrnoException | undefined,
   events: [] as Array<{ operation: "close" | "fsync" | "open" | "rename"; path: string }>
 }));
 
@@ -48,6 +49,9 @@ vi.mock("fs", async () => {
     },
     renameSync: (...arguments_: Parameters<typeof actual.renameSync>) => {
       fsTracking.events.push({ operation: "rename", path: String(arguments_[1]) });
+      if (fsTracking.renameError) {
+        throw fsTracking.renameError;
+      }
       actual.renameSync(...arguments_);
     }
   };
@@ -93,6 +97,7 @@ describe.sequential("configuration persistence", () => {
     delete process.env.CONFIG_ENCRYPTION_KEY;
     fsTracking.descriptorPaths.clear();
     fsTracking.directoryFsyncError = undefined;
+    fsTracking.renameError = undefined;
     fsTracking.events.length = 0;
     vi.clearAllMocks();
     vi.resetModules();
@@ -143,14 +148,45 @@ describe.sequential("configuration persistence", () => {
     ]);
   });
 
-  it("reports Linux directory fsync failures, closes the directory, and leaves no temporary file", async () => {
+  it("treats a post-rename directory fsync failure as committed and keeps CRUD cache and file coherent", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    process.env.CONFIG_ENCRYPTION_KEY = randomBytes(32).toString("base64");
     const database = await import("../src/services/database");
+    database.loadConfig();
+    fsTracking.events.length = 0;
     fsTracking.directoryFsyncError = Object.assign(new Error("directory fsync failed"), { code: "EINVAL" });
+
+    const added = database.addPrinter(printerInput);
+
+    expect(added).toMatchObject({ id: "p1s-bureau", createdAt: 1_000, updatedAt: 1_000 });
+    expect(database.getPrinter("p1s-bureau")).toEqual(added);
+    const persisted = JSON.parse(readFileSync(join(workingDirectory, "config", "printers.json"), "utf8"));
+    expect(persisted.printers["p1s-bureau"]).toMatchObject({
+      ...added,
+      accessCode: expect.stringMatching(/^enc:v1:/)
+    });
+    database.reloadConfig();
+    expect(database.getPrinter("p1s-bureau")).toEqual(added);
+    const directoryEvents = fsTracking.events.filter(event => event.path === join(workingDirectory, "config"));
+    expect(directoryEvents.map(event => event.operation)).toEqual(["open", "fsync", "close"]);
+    expect(readdirSync(join(workingDirectory, "config"))).toEqual(["printers.json"]);
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: join(workingDirectory, "config", "printers.json"),
+        directory: join(workingDirectory, "config")
+      }),
+      expect.stringContaining("durability is uncertain")
+    );
+  });
+
+  it("fails before commit and removes the temporary file when rename fails", async () => {
+    const database = await import("../src/services/database");
+    database.loadConfig();
+    fsTracking.renameError = Object.assign(new Error("rename failed"), { code: "EIO" });
 
     expect(database.saveConfig({ version: 1, printers: {} })).toBe(false);
 
-    const directoryEvents = fsTracking.events.filter(event => event.path === join(workingDirectory, "config"));
-    expect(directoryEvents.map(event => event.operation)).toEqual(["open", "fsync", "close"]);
     expect(readdirSync(join(workingDirectory, "config"))).toEqual(["printers.json"]);
   });
 
@@ -267,6 +303,89 @@ describe.sequential("configuration persistence", () => {
     const database = await import("../src/services/database");
 
     expect(() => database.loadConfig()).toThrow(`printers.p1s-bureau.port must be between 1 and 65535`);
+  });
+
+  it.each([
+    ["object key", "", "id", "", "printers keys must be non-blank strings"],
+    ["id", "p1s-bureau", "id", "   ", "printers.p1s-bureau.id must be a non-blank string"],
+    ["name", "p1s-bureau", "name", "", "printers.p1s-bureau.name must be a non-blank string"],
+    ["ip", "p1s-bureau", "ip", "\t", "printers.p1s-bureau.ip must be a non-blank string"],
+    ["serial", "p1s-bureau", "serial", " ", "printers.p1s-bureau.serial must be a non-blank string"],
+    ["accessCode", "p1s-bureau", "accessCode", "", "printers.p1s-bureau.accessCode must be a non-blank string"],
+    [
+      "forumChannelId",
+      "p1s-bureau",
+      "forumChannelId",
+      "   ",
+      "printers.p1s-bureau.forumChannelId must be a non-blank string"
+    ],
+    [
+      "createdAt negative",
+      "p1s-bureau",
+      "createdAt",
+      -1,
+      "printers.p1s-bureau.createdAt must be a non-negative integer"
+    ],
+    [
+      "createdAt fractional",
+      "p1s-bureau",
+      "createdAt",
+      1.5,
+      "printers.p1s-bureau.createdAt must be a non-negative integer"
+    ],
+    [
+      "updatedAt negative",
+      "p1s-bureau",
+      "updatedAt",
+      -1,
+      "printers.p1s-bureau.updatedAt must be a non-negative integer"
+    ],
+    [
+      "updatedAt non-finite",
+      "p1s-bureau",
+      "updatedAt",
+      Number.NaN,
+      "printers.p1s-bureau.updatedAt must be a non-negative integer"
+    ]
+  ])("rejects invalid persisted printer configuration: %s", async (_case, id, field, value, issue) => {
+    mkdirSync(join(workingDirectory, "config"));
+    process.env.CONFIG_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+    const printer = {
+      ...printerInput,
+      id,
+      createdAt: 1_000,
+      updatedAt: 1_000,
+      [field]: value
+    };
+    writeFileSync(
+      join(workingDirectory, "config", "printers.json"),
+      JSON.stringify({ version: 1, printers: { [id]: printer } }),
+      "utf8"
+    );
+    const database = await import("../src/services/database");
+
+    expect(() => database.loadConfig()).toThrow(issue);
+  });
+
+  it("accepts non-blank strings, boundary ports, and zero timestamps", async () => {
+    mkdirSync(join(workingDirectory, "config"));
+    process.env.CONFIG_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+    const printer = {
+      ...printerInput,
+      id: "p1s-bureau",
+      port: 1,
+      rtcPort: 65_535,
+      createdAt: 0,
+      updatedAt: 0
+    };
+    writeFileSync(
+      join(workingDirectory, "config", "printers.json"),
+      JSON.stringify({ version: 1, printers: { "p1s-bureau": printer } }),
+      "utf8"
+    );
+    const database = await import("../src/services/database");
+
+    expect(database.loadConfig().printers["p1s-bureau"]).toEqual(printer);
   });
 
   it("encrypts access codes and decrypts them after reload", async () => {
