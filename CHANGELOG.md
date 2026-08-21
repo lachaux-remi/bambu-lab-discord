@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.0](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.4.2...v2.5.0) (2026-08-21)
+
+
+### Fonctionnalités
+
+* add scenario-driven mock printer test bench ([#82](https://github.com/lachaux-remi/bambu-lab-discord/issues/82)) ([b4a4143](https://github.com/lachaux-remi/bambu-lab-discord/commit/b4a41433ef0ccf30f47c207b23b56c56e9965af8))
+* **discord:** add printer reconnect command ([#62](https://github.com/lachaux-remi/bambu-lab-discord/issues/62)) ([a60c400](https://github.com/lachaux-remi/bambu-lab-discord/commit/a60c4009b7f41e722db22fb3e647f6ead12335e0))
+* improve Discord printer administration ([7e9ac1b](https://github.com/lachaux-remi/bambu-lab-discord/commit/7e9ac1bb4057fa35fcb5d1bb17ac2d4004e68328))
+* make Discord notifications resilient ([#57](https://github.com/lachaux-remi/bambu-lab-discord/issues/57)) ([ae70fba](https://github.com/lachaux-remi/bambu-lab-discord/commit/ae70fba9faf5584be359d1a2d1c796f0d8d026ca))
+
+
+### Corrections de bugs
+
+* bound MQTT message processing ([#80](https://github.com/lachaux-remi/bambu-lab-discord/issues/80)) ([37de074](https://github.com/lachaux-remi/bambu-lab-discord/commit/37de0747389be8a563b61368c8480388d24aee13))
+* **ci:** type debug tool environment ([#69](https://github.com/lachaux-remi/bambu-lab-discord/issues/69)) ([4416bba](https://github.com/lachaux-remi/bambu-lab-discord/commit/4416bbab0ff652b71c31768a608a3f7c57b2ca00))
+* **discord:** harden printer administration commands ([#71](https://github.com/lachaux-remi/bambu-lab-discord/issues/71)) ([8e7b650](https://github.com/lachaux-remi/bambu-lab-discord/commit/8e7b650534c7341b920dc824c2c6856de4a63699))
+* **discord:** harden slash command handling ([#65](https://github.com/lachaux-remi/bambu-lab-discord/issues/65)) ([dcef4f0](https://github.com/lachaux-remi/bambu-lab-discord/commit/dcef4f0c5f3888d44adff53541fa6ccea981a4c9))
+* **docker:** exclude pnpm from runtime image ([#70](https://github.com/lachaux-remi/bambu-lab-discord/issues/70)) ([703405b](https://github.com/lachaux-remi/bambu-lab-discord/commit/703405b4ff236a3d13340b3178035d68132f3542))
+* drain runtime work during shutdown ([#63](https://github.com/lachaux-remi/bambu-lab-discord/issues/63)) ([de0cb31](https://github.com/lachaux-remi/bambu-lab-discord/commit/de0cb3115350dbae683448a9d41e34dae1c47454))
+* enforce Discord notification limits ([#81](https://github.com/lachaux-remi/bambu-lab-discord/issues/81)) ([a97693c](https://github.com/lachaux-remi/bambu-lab-discord/commit/a97693c3d6266a414154a1dc16c953f0f8c1674f))
+* extract project image for plate zero ([#59](https://github.com/lachaux-remi/bambu-lab-discord/issues/59)) ([ba6d317](https://github.com/lachaux-remi/bambu-lab-discord/commit/ba6d317269262a7c0ae818435958b157933e1192))
+* harden configuration persistence and debug outputs ([#64](https://github.com/lachaux-remi/bambu-lab-discord/issues/64)) ([163766c](https://github.com/lachaux-remi/bambu-lab-discord/commit/163766ccd3e9f2f4b9242f590dd5f5e0bcaebf5f))
+* make Discord printer configuration transactional ([#58](https://github.com/lachaux-remi/bambu-lab-discord/issues/58)) ([095809e](https://github.com/lachaux-remi/bambu-lab-discord/commit/095809e2d7bfa04df1cf8ffb1a5260c7c454dd9f))
+* **mqtt:** validate incremental printer messages ([#73](https://github.com/lachaux-remi/bambu-lab-discord/issues/73)) ([da3f6f1](https://github.com/lachaux-remi/bambu-lab-discord/commit/da3f6f14c629b1e2a8bb8ffbfbb59811fe89748c))
+* **notifications:** validate persisted outbox state ([#66](https://github.com/lachaux-remi/bambu-lab-discord/issues/66)) ([602e53b](https://github.com/lachaux-remi/bambu-lab-discord/commit/602e53ba0c18da34ae2c27d20c6201aec831b1bd))
+* **security:** bound project image decompression ([#79](https://github.com/lachaux-remi/bambu-lab-discord/issues/79)) ([e701234](https://github.com/lachaux-remi/bambu-lab-discord/commit/e7012349f3d79e074583a252f39e03644f6efbfb))
+* **security:** fail closed MQTT debug sanitizer ([#78](https://github.com/lachaux-remi/bambu-lab-discord/issues/78)) ([4a7f33f](https://github.com/lachaux-remi/bambu-lab-discord/commit/4a7f33f4f85a1e62f628ea2a03d12c7a3f757128))
+* **security:** parse RTC JPEG streams incrementally ([#77](https://github.com/lachaux-remi/bambu-lab-discord/issues/77)) ([7a1d1be](https://github.com/lachaux-remi/bambu-lab-discord/commit/7a1d1bebb9691aa5a428cc346342874e809dfc25))
+* serialize camera captures per printer ([fa3eed9](https://github.com/lachaux-remi/bambu-lab-discord/commit/fa3eed90d3cd1398a7c4fcc56af2530f00073bce))
+* **types:** harden indexed access ([#72](https://github.com/lachaux-remi/bambu-lab-discord/issues/72)) ([50e43b0](https://github.com/lachaux-remi/bambu-lab-discord/commit/50e43b087823ea56ffb682cd1108075490f3f0b7))
+
 ## [2.4.2](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.4.1...v2.4.2) (2026-08-20)
 
 
