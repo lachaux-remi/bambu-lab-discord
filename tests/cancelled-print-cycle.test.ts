@@ -80,7 +80,6 @@ vi.mock("../src/services/database", () => ({
 }));
 vi.mock("../src/services/discord/bot", () => ({
   createPrintThread: vi.fn().mockResolvedValue("thread-1"),
-  isPrintThreadAvailable: vi.fn().mockResolvedValue(true),
   sendToThread: vi.fn().mockResolvedValue(true),
   updateThreadTags: vi.fn().mockResolvedValue(undefined)
 }));

@@ -1,5 +1,4 @@
 export {
-  archiveThread,
   createPrintThread,
   ensureForumTags,
   ensurePrinterTag,
