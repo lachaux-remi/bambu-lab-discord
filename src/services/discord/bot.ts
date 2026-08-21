@@ -14,6 +14,13 @@ import { ForumTag } from "../../enums";
 import { getLogger } from "../../libs/logger";
 import type { DiscordFileAttachment, ForumTagPayload } from "../../types/discord";
 import type { PrinterConfig } from "../../types/printer-config";
+import {
+  DISCORD_ATTACHMENT_SIZE_LIMIT,
+  DISCORD_EMBED_FOOTER_LIMIT,
+  DISCORD_EMBED_TEXT_LIMIT,
+  normalizeDiscordPayload,
+  truncateDiscordText
+} from "./payload";
 
 const logger = getLogger("DiscordBot");
 const MAX_FORUM_TAGS = 20;
@@ -103,13 +110,35 @@ const addEventMarker = (embed: EmbedBuilder, eventId: string): EmbedBuilder => {
   const marker = markerFor(eventId);
   const footer = embed.data.footer;
   if (!footer?.text.includes(marker)) {
-    embed.setFooter({ text: footer?.text ? `${footer.text} ${marker}` : marker, iconURL: footer?.icon_url });
+    const text = footer?.text ? `${footer.text} ${marker}` : marker;
+    embed.setFooter({
+      text: truncateDiscordText(text, DISCORD_EMBED_FOOTER_LIMIT, marker),
+      iconURL: footer?.icon_url
+    });
   }
   return embed;
 };
 
 const makeAttachments = (files?: DiscordFileAttachment[]): AttachmentBuilder[] =>
   (files ?? []).flatMap(file => (file.buffer ? [new AttachmentBuilder(file.buffer, { name: file.name })] : []));
+
+const prepareDeliveryPayload = (
+  embed: EmbedBuilder,
+  files?: DiscordFileAttachment[],
+  preservedFooterSuffix?: string
+): { embed: EmbedBuilder; files: AttachmentBuilder[] } => {
+  const normalized = normalizeDiscordPayload(embed, files, preservedFooterSuffix);
+  if (normalized.embedWasTruncated) {
+    logger.warn({ limit: DISCORD_EMBED_TEXT_LIMIT }, "Discord embed text truncated to delivery limits");
+  }
+  for (const attachmentSize of normalized.omittedAttachmentSizes) {
+    logger.warn(
+      { attachmentSize, limit: DISCORD_ATTACHMENT_SIZE_LIMIT },
+      "Discord attachment omitted; delivering notification text without it"
+    );
+  }
+  return { embed: normalized.embed, files: makeAttachments(normalized.files) };
+};
 
 const messageHasMarker = (
   message: { embeds?: readonly { footer?: { text?: string | null } | null }[] },
@@ -450,11 +479,12 @@ export const deliverPrintThread = async (
     if (appliedTags.length !== new Set(input.tags.map(normalizeTagName)).size) {
       return { status: "retryable", reason: { category: "discord-tags-unavailable" } };
     }
+    const payload = prepareDeliveryPayload(input.embed, input.files, markerFor(input.eventId));
     const thread = await forum.threads.create({
       name: normalizeThreadTitle(input.title),
       autoArchiveDuration: 10080,
       appliedTags: appliedTags.length ? appliedTags : undefined,
-      message: { embeds: [input.embed], files: makeAttachments(input.files) }
+      message: { embeds: [payload.embed], files: payload.files }
     });
     logger.info({ threadId: thread.id, printKey: input.printKey }, "Created reliable forum post");
     return { status: "sent", value: { threadId: thread.id } };
@@ -515,9 +545,10 @@ export const deliverThreadNotification = async (
   } else if (!messageId) {
     try {
       const nonce = createHash("sha256").update(input.eventId).digest("hex").slice(0, 25);
+      const payload = prepareDeliveryPayload(input.embed, input.files, markerFor(input.eventId));
       const message = await thread.send({
-        embeds: [input.embed],
-        files: makeAttachments(input.files),
+        embeds: [payload.embed],
+        files: payload.files,
         nonce,
         enforceNonce: true
       });
@@ -563,24 +594,15 @@ export const createPrintThread = async (
   }
 
   try {
-    // Prepare attachments
-    const attachments: AttachmentBuilder[] = [];
-    if (files) {
-      for (const f of files) {
-        if (f.buffer) {
-          attachments.push(new AttachmentBuilder(f.buffer, { name: f.name }));
-        }
-      }
-    }
-
     const appliedTags =
       tags && tags.length ? getTagIdsForNames(forum, tags) : getTagIdsForNames(forum, [ForumTag.IN_PROGRESS]);
+    const payload = prepareDeliveryPayload(initialEmbed, files);
 
     const thread = await forum.threads.create({
-      name: title,
+      name: normalizeThreadTitle(title),
       autoArchiveDuration: 10080,
       appliedTags: appliedTags.length ? appliedTags : undefined,
-      message: { embeds: [initialEmbed], files: attachments.length ? attachments : undefined }
+      message: { embeds: [payload.embed], files: payload.files.length ? payload.files : undefined }
     });
 
     logger.info({ threadId: thread.id, printKey }, "Created forum post (thread) for print");
@@ -611,18 +633,11 @@ export const sendToThread = async (
       return null;
     }
 
-    const attachments: AttachmentBuilder[] = [];
-    if (files) {
-      for (const f of files) {
-        if (f.buffer) {
-          attachments.push(new AttachmentBuilder(f.buffer, { name: f.name }));
-        }
-      }
-    }
+    const payload = prepareDeliveryPayload(embed, files);
 
     return await channel.send({
-      embeds: [embed],
-      files: attachments.length ? attachments : undefined
+      embeds: [payload.embed],
+      files: payload.files.length ? payload.files : undefined
     });
   } catch (error) {
     logger.error({ error }, "Failed to send message to thread");

@@ -12,6 +12,7 @@ export default defineConfig({
         "src/services/database/**/*.ts",
         "src/services/discord/bot.ts",
         "src/services/discord/commands/index.ts",
+        "src/services/discord/payload.ts",
         "src/services/printer-manager/**/*.ts",
         "src/services/printer-status/**/*.ts",
         "src/utils/**/*.ts"

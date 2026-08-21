@@ -1,6 +1,14 @@
 import { EmbedBuilder } from "discord.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  DISCORD_ATTACHMENT_SIZE_LIMIT,
+  DISCORD_EMBED_DESCRIPTION_LIMIT,
+  DISCORD_EMBED_FIELD_VALUE_LIMIT,
+  DISCORD_EMBED_TEXT_LIMIT,
+  discordEmbedTextLength
+} from "../src/services/discord/payload";
+
 const discord = vi.hoisted(() => {
   const fetch = vi.fn();
   class Client {
@@ -11,11 +19,15 @@ const discord = vi.hoisted(() => {
   }
   return { Client, fetch };
 });
+const logs = vi.hoisted(() => ({ warn: vi.fn() }));
 
 vi.mock("discord.js", async importOriginal => {
   const actual = await importOriginal<typeof import("discord.js")>();
   return { ...actual, Client: discord.Client };
 });
+vi.mock("../src/libs/logger", () => ({
+  getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: logs.warn })
+}));
 vi.mock("../src/constants", async importOriginal => {
   const actual = await importOriginal<typeof import("../src/constants")>();
   return { ...actual, DISCORD_BOT_TOKEN: "test-token" };
@@ -24,6 +36,7 @@ vi.mock("../src/constants", async importOriginal => {
 describe.sequential("reliable Discord delivery", () => {
   beforeEach(async () => {
     discord.fetch.mockReset();
+    logs.warn.mockReset();
     const { initDiscordClient } = await import("../src/services/discord/bot");
     await initDiscordClient();
   });
@@ -60,6 +73,155 @@ describe.sequential("reliable Discord delivery", () => {
       icon_url: "https://example.com/icon.png"
     });
     expect(setAppliedTags).toHaveBeenCalledWith(["tag-1"]);
+  });
+
+  it("preserves exact embed limits and truncates +1 values without splitting Unicode", async () => {
+    const send = vi.fn().mockResolvedValue({ id: "message-1" });
+    const thread = {
+      isThread: () => true,
+      parentId: "forum-1",
+      send,
+      setAppliedTags: vi.fn().mockResolvedValue(undefined)
+    };
+    const forum = { type: 15, availableTags: [] };
+    discord.fetch.mockImplementation((id: string) => Promise.resolve(id === "thread-1" ? thread : forum));
+    const { deliverThreadNotification } = await import("../src/services/discord/bot");
+
+    await deliverThreadNotification({
+      eventId: "exact-limits",
+      threadId: "thread-1",
+      embed: EmbedBuilder.from({
+        description: "d".repeat(DISCORD_EMBED_DESCRIPTION_LIMIT),
+        fields: [{ name: "Field", value: "v".repeat(DISCORD_EMBED_FIELD_VALUE_LIMIT) }]
+      }),
+      tags: [],
+      reconcileOnly: false
+    });
+    await deliverThreadNotification({
+      eventId: "unicode-plus-one",
+      threadId: "thread-1",
+      embed: EmbedBuilder.from({
+        description: `${"d".repeat(DISCORD_EMBED_DESCRIPTION_LIMIT - 1)}🧪`,
+        fields: [{ name: "Field", value: `${"v".repeat(DISCORD_EMBED_FIELD_VALUE_LIMIT - 1)}🧪` }]
+      }),
+      tags: [],
+      reconcileOnly: false
+    });
+
+    const exactEmbed = send.mock.calls[0]?.[0].embeds[0].toJSON();
+    expect(exactEmbed.description).toHaveLength(DISCORD_EMBED_DESCRIPTION_LIMIT);
+    expect(exactEmbed.fields[0]?.value).toHaveLength(DISCORD_EMBED_FIELD_VALUE_LIMIT);
+    const unicodeEmbed = send.mock.calls[1]?.[0].embeds[0].toJSON();
+    expect(unicodeEmbed.description).toBe("d".repeat(DISCORD_EMBED_DESCRIPTION_LIMIT - 1));
+    expect(unicodeEmbed.fields[0]?.value).toBe("v".repeat(DISCORD_EMBED_FIELD_VALUE_LIMIT - 1));
+  });
+
+  it("bounds aggregate embed text at 6000 while preserving the deduplication marker", async () => {
+    const send = vi.fn().mockResolvedValue({ id: "message-1" });
+    const thread = {
+      isThread: () => true,
+      parentId: "forum-1",
+      send,
+      setAppliedTags: vi.fn().mockResolvedValue(undefined)
+    };
+    const forum = { type: 15, availableTags: [] };
+    discord.fetch.mockImplementation((id: string) => Promise.resolve(id === "thread-1" ? thread : forum));
+    const { deliverThreadNotification } = await import("../src/services/discord/bot");
+
+    await deliverThreadNotification({
+      eventId: "aggregate-limit",
+      threadId: "thread-1",
+      embed: EmbedBuilder.from({
+        title: "t".repeat(256),
+        description: "d".repeat(DISCORD_EMBED_DESCRIPTION_LIMIT),
+        fields: [
+          { name: "First", value: "1".repeat(DISCORD_EMBED_FIELD_VALUE_LIMIT) },
+          { name: "Second", value: "2".repeat(DISCORD_EMBED_FIELD_VALUE_LIMIT) }
+        ]
+      }),
+      tags: [],
+      reconcileOnly: false
+    });
+
+    const deliveredEmbed = send.mock.calls[0]?.[0].embeds[0].toJSON();
+    expect(discordEmbedTextLength(deliveredEmbed)).toBe(DISCORD_EMBED_TEXT_LIMIT);
+    expect(deliveredEmbed.footer?.text).toContain("[event:aggregate-limit]");
+  });
+
+  it("keeps a 10 MiB attachment and omits a +1 byte attachment with its embed reference", async () => {
+    const send = vi.fn().mockResolvedValue({ id: "message-1" });
+    const thread = {
+      isThread: () => true,
+      parentId: "forum-1",
+      send,
+      setAppliedTags: vi.fn().mockResolvedValue(undefined)
+    };
+    const forum = { type: 15, availableTags: [] };
+    discord.fetch.mockImplementation((id: string) => Promise.resolve(id === "thread-1" ? thread : forum));
+    const { deliverThreadNotification } = await import("../src/services/discord/bot");
+
+    await deliverThreadNotification({
+      eventId: "attachment-limits",
+      threadId: "thread-1",
+      embed: EmbedBuilder.from({
+        description: "Notification text",
+        image: { url: "attachment://exact.jpg" },
+        thumbnail: { url: "attachment://oversized.jpg" }
+      }),
+      files: [
+        { name: "exact.jpg", buffer: Buffer.alloc(DISCORD_ATTACHMENT_SIZE_LIMIT) },
+        { name: "oversized.jpg", buffer: Buffer.alloc(DISCORD_ATTACHMENT_SIZE_LIMIT + 1) }
+      ],
+      tags: [],
+      reconcileOnly: false
+    });
+
+    const payload = send.mock.calls[0]?.[0];
+    expect(payload.files).toHaveLength(1);
+    expect(payload.files[0].name).toBe("exact.jpg");
+    expect(payload.files[0].attachment).toHaveLength(DISCORD_ATTACHMENT_SIZE_LIMIT);
+    expect(payload.embeds[0].toJSON()).toMatchObject({
+      description: "Notification text",
+      image: { url: "attachment://exact.jpg" }
+    });
+    expect(payload.embeds[0].toJSON().thumbnail).toBeUndefined();
+    expect(logs.warn).toHaveBeenCalledWith(
+      { attachmentSize: DISCORD_ATTACHMENT_SIZE_LIMIT + 1, limit: DISCORD_ATTACHMENT_SIZE_LIMIT },
+      "Discord attachment omitted; delivering notification text without it"
+    );
+  });
+
+  it("delivers notification text when its only media is oversized", async () => {
+    const send = vi.fn().mockResolvedValue({ id: "message-1" });
+    const thread = {
+      isThread: () => true,
+      parentId: "forum-1",
+      send,
+      setAppliedTags: vi.fn().mockResolvedValue(undefined)
+    };
+    const forum = { type: 15, availableTags: [] };
+    discord.fetch.mockImplementation((id: string) => Promise.resolve(id === "thread-1" ? thread : forum));
+    const { deliverThreadNotification } = await import("../src/services/discord/bot");
+
+    await expect(
+      deliverThreadNotification({
+        eventId: "text-only-fallback",
+        threadId: "thread-1",
+        embed: EmbedBuilder.from({
+          description: "Text remains deliverable",
+          image: { url: "attachment://oversized.jpg" }
+        }),
+        files: [{ name: "oversized.jpg", buffer: Buffer.alloc(DISCORD_ATTACHMENT_SIZE_LIMIT + 1) }],
+        tags: [],
+        reconcileOnly: false
+      })
+    ).resolves.toEqual({ status: "sent", value: { messageId: "message-1" } });
+
+    expect(send.mock.calls[0]?.[0].files).toEqual([]);
+    expect(send.mock.calls[0]?.[0].embeds[0].toJSON()).toMatchObject({
+      description: "Text remains deliverable"
+    });
+    expect(send.mock.calls[0]?.[0].embeds[0].toJSON().image).toBeUndefined();
   });
 
   it.each([
