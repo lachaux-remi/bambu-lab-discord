@@ -15,6 +15,7 @@ import { isIP } from "node:net";
 import { join } from "node:path";
 
 import { BAMBU_USERNAME } from "../constants";
+import { CommandResult, LightMode, LightNode, MessageCommand, PrintState } from "../enums";
 import { getBambuTlsOptions } from "../libs/bambu-tls";
 import { getLogger } from "../libs/logger";
 
@@ -44,7 +45,6 @@ const REDACTED_URL = "[REDACTED_URL]";
 const CREDENTIAL_KEY =
   /(^auth$|^ttcodeenc$|accesscode|password|passwd|authorization|token|apikey|secret|credential|encryptionkey|cryptkey|privatekey|clientkey|signature)/;
 const IDENTITY_KEY = /(^id$|(id|uuid)$)/;
-const FUNCTIONAL_ID_KEY = /^(sequence|ams|slot|plate|nozzle)(id|uuid)$|^trayid$/;
 const PROJECT_NAME_KEY =
   /(^file$|^path$|(subtask|project|job).*(name|path|file)|gcode(file|path|name)|filename|filepath)/;
 const SERIAL_KEY = /(^sn$|serial)/;
@@ -55,6 +55,13 @@ const URL = /[a-z][a-z\d+.-]*:\/\//i;
 const SIGNED_URL_FRAGMENT = /(x-amz-(credential|signature)|[?&](signature|credential|token)=)/i;
 
 const normalizeKey = (key: string): string => key.replaceAll(/[^a-z\d]/gi, "").toLowerCase();
+const ALLOWED_STRING_VALUES = new Map<string, ReadonlySet<string>>([
+  ["command", new Set<string>(Object.values(MessageCommand))],
+  ["gcodestate", new Set<string>(Object.values(PrintState))],
+  ["result", new Set<string>(Object.values(CommandResult))],
+  ["node", new Set<string>(Object.values(LightNode))],
+  ["mode", new Set<string>(Object.values(LightMode))]
+]);
 
 const pseudonym = (salt: string, kind: string, value: unknown): string => {
   const digest = createHash("sha256")
@@ -74,32 +81,32 @@ export const createCaptureSanitizer = (salt = randomBytes(32).toString("hex")): 
     if (CREDENTIAL_KEY.test(key)) {
       return REDACTED;
     }
-    if (AMS_SERIAL_KEY.test(key) && typeof value === "string") {
-      return pseudonym(salt, "SERIAL", value);
-    }
-    if (IDENTITY_KEY.test(key) && !FUNCTIONAL_ID_KEY.test(key)) {
-      return pseudonym(salt, "ID", value);
-    }
-    if (SERIAL_KEY.test(key)) {
-      return pseudonym(salt, "SERIAL", value);
-    }
-    if (FINGERPRINT_KEY.test(key)) {
-      return pseudonym(salt, "HASH", value);
-    }
-    if (IP_KEY.test(key)) {
-      return pseudonym(salt, "IP", value);
-    }
-    if (PROJECT_NAME_KEY.test(key)) {
-      return pseudonym(salt, "PROJECT", value);
-    }
     if (typeof value === "string") {
+      if (AMS_SERIAL_KEY.test(key) || SERIAL_KEY.test(key)) {
+        return pseudonym(salt, "SERIAL", value);
+      }
+      if (IDENTITY_KEY.test(key)) {
+        return pseudonym(salt, "ID", value);
+      }
+      if (FINGERPRINT_KEY.test(key)) {
+        return pseudonym(salt, "HASH", value);
+      }
+      if (IP_KEY.test(key)) {
+        return pseudonym(salt, "IP", value);
+      }
+      if (PROJECT_NAME_KEY.test(key)) {
+        return pseudonym(salt, "PROJECT", value);
+      }
+      if (ALLOWED_STRING_VALUES.get(key)?.has(value) === true) {
+        return value;
+      }
       if (URL.test(value) || SIGNED_URL_FRAGMENT.test(value)) {
         return REDACTED_URL;
       }
       if (isIP(value) !== 0) {
         return pseudonym(salt, "IP", value);
       }
-      return value;
+      return pseudonym(salt, "STRING", value);
     }
     if (value === null || typeof value === "boolean" || typeof value === "number") {
       return value;
@@ -112,7 +119,7 @@ export const createCaptureSanitizer = (salt = randomBytes(32).toString("hex")): 
         Object.entries(value).map(([childKey, child]) => [childKey, sanitize(child, childKey)])
       );
     }
-    return String(value);
+    return REDACTED;
   };
 
   return value => sanitize(value);
