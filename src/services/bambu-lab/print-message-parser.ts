@@ -4,31 +4,40 @@ import type { ProjectFileCommand } from "../../types/project-file";
 import type { LightReport, PushStatusCommand } from "../../types/push-status";
 
 const PRINT_STATES = new Set<string>(Object.values(PrintState));
+const MAX_MQTT_FIELD_LENGTH = 4096;
+const MAX_MQTT_ARRAY_LENGTH = 64;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
-const isIdentity = (value: unknown): value is string | number => typeof value === "string" || isFiniteNumber(value);
+const isBoundedString = (value: unknown): value is string =>
+  typeof value === "string" && value.length <= MAX_MQTT_FIELD_LENGTH;
+
+const isIdentity = (value: unknown): value is string | number => isBoundedString(value) || isFiniteNumber(value);
 
 const isPlateIndex = (value: unknown): value is number | `${number}` =>
   (typeof value === "number" && Number.isInteger(value) && value >= 0) ||
-  (typeof value === "string" && /^\d+$/.test(value));
+  (isBoundedString(value) && /^\d+$/.test(value));
 
 const isPrintState = (value: unknown): value is PrintState => typeof value === "string" && PRINT_STATES.has(value);
 
 const parseLightsReport = (value: unknown): LightReport[] | undefined => {
-  if (!Array.isArray(value)) {
+  if (!Array.isArray(value) || value.length > MAX_MQTT_ARRAY_LENGTH) {
     return undefined;
   }
 
-  const reports = value.filter(
-    (report): report is LightReport =>
+  const reports: LightReport[] = [];
+  for (const report of value) {
+    if (
       isRecord(report) &&
       report.node === LightNode.CHAMBER &&
       (report.mode === LightMode.ON || report.mode === LightMode.OFF)
-  );
+    ) {
+      reports.push({ node: report.node, mode: report.mode });
+    }
+  }
   return reports.length > 0 ? reports : undefined;
 };
 
@@ -41,10 +50,10 @@ const parsePushStatus = (data: Record<string, unknown>): PushStatusCommand => {
   if (isIdentity(data.task_id)) {
     command.task_id = data.task_id;
   }
-  if (typeof data.subtask_name === "string") {
+  if (isBoundedString(data.subtask_name)) {
     command.subtask_name = data.subtask_name;
   }
-  if (typeof data.gcode_file === "string") {
+  if (isBoundedString(data.gcode_file)) {
     command.gcode_file = data.gcode_file;
   }
   if (isPlateIndex(data.plate_idx)) {
@@ -83,22 +92,26 @@ const parseProjectFile = (data: Record<string, unknown>): ProjectFileCommand => 
   if (isIdentity(data.task_id)) {
     command.task_id = data.task_id;
   }
-  if (typeof data.model_id === "string") {
+  if (isBoundedString(data.model_id)) {
     command.model_id = data.model_id;
   }
-  if (typeof data.gcode_file === "string") {
+  if (isBoundedString(data.gcode_file)) {
     command.gcode_file = data.gcode_file;
   }
   if (isPlateIndex(data.plate_idx)) {
     command.plate_idx = data.plate_idx;
   }
-  if (typeof data.subtask_name === "string") {
+  if (isBoundedString(data.subtask_name)) {
     command.subtask_name = data.subtask_name;
   }
-  if (typeof data.url === "string") {
+  if (isBoundedString(data.url)) {
     command.url = data.url;
   }
-  if (Array.isArray(data.ams_mapping) && data.ams_mapping.every(isFiniteNumber)) {
+  if (
+    Array.isArray(data.ams_mapping) &&
+    data.ams_mapping.length <= MAX_MQTT_ARRAY_LENGTH &&
+    data.ams_mapping.every(isFiniteNumber)
+  ) {
     command.ams_mapping = data.ams_mapping;
   }
 
