@@ -22,7 +22,7 @@ export const printProgress = async (
     .addFields(
       { name: "Couche", value: `${status.currentLayer} / ${status.maxLayers}`, inline: true },
       { name: "Durée", value: time, inline: true },
-      { name: "Temps restant", value: formatMinuteToBestDisplay(status.remainingTime), inline: true }
+      { name: "Temps restant", value: formatMinuteToBestDisplay(status.remainingTime ?? 0), inline: true }
     );
 
   if (status.projectImage) {

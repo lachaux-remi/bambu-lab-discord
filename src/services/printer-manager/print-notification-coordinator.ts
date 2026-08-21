@@ -17,7 +17,7 @@ import { basename, join } from "node:path";
 import { ForumTag, PrintState } from "../../enums";
 import { getLogger } from "../../libs/logger";
 import type { EmbedResult } from "../../types/discord";
-import type { Status } from "../../types/printer-status";
+import type { Status, StatusWithState } from "../../types/printer-status";
 import { getDiscordTagsForStatus } from "../../utils/discord-tags.util";
 import {
   type PrintIdentity,
@@ -97,7 +97,7 @@ interface PrintContext {
   printerId: string;
   printerName: string;
   printKey: string;
-  status: Status;
+  status: StatusWithState;
 }
 
 const emptyState = (): OutboxState => ({ version: 2, events: [], activePrints: {} });
@@ -596,7 +596,7 @@ export class PrintNotificationCoordinator {
   private addRecoveryEvent(
     printerId: string,
     active: ActivePrintState,
-    status: Pick<Status, "state" | "isMulticolor">,
+    status: Pick<StatusWithState, "state" | "isMulticolor">,
     persistImmediately = true
   ): Promise<string> {
     return this.addEvent(
@@ -926,7 +926,9 @@ export class PrintNotificationCoordinator {
           const lossEventIndex = this.state.events.findIndex(candidate => candidate.id === event.id);
           if (recoveryEventIndex > lossEventIndex + 1) {
             const [recoveryEvent] = this.state.events.splice(recoveryEventIndex, 1);
-            this.state.events.splice(lossEventIndex + 1, 0, recoveryEvent);
+            if (recoveryEvent) {
+              this.state.events.splice(lossEventIndex + 1, 0, recoveryEvent);
+            }
           }
         }
         if (firstStatus) {

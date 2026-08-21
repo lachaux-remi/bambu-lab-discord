@@ -124,8 +124,9 @@ const createPinnedLookup =
   (_hostname, options, callback) => {
     const family = requestedFamily(options.family);
     const matchingAddresses = family === 0 ? addresses : addresses.filter(address => address.family === family);
+    const [address] = matchingAddresses;
 
-    if (matchingAddresses.length === 0) {
+    if (!address) {
       const error = new Error("No validated address matches the requested IP family") as NodeJS.ErrnoException;
       error.code = "ENOTFOUND";
       callback(error, options.all ? [] : "", family);
@@ -137,7 +138,6 @@ const createPinnedLookup =
       return;
     }
 
-    const [address] = matchingAddresses;
     callback(null, address.address, address.family);
   };
 

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ForumTag, PrintState } from "../src/enums";
-import type { Status } from "../src/types/printer-status";
+import type { Status, StatusWithState } from "../src/types/printer-status";
 
 const mocks = vi.hoisted(() => ({
   deliverPrintThread: vi.fn(),
@@ -35,7 +35,7 @@ vi.mock("../src/libs/logger", () => ({
 const originalWorkingDirectory = process.cwd();
 let workingDirectory: string;
 
-const status = (state: PrintState, overrides: Partial<Status> = {}): Status => ({
+const status = (state: PrintState, overrides: Partial<Status> = {}): StatusWithState => ({
   state,
   currentLayer: 1,
   maxLayers: 10,
@@ -114,6 +114,13 @@ const validPersistedOutbox = (): JsonRecord => ({
 });
 
 const persistedEvents = (snapshot: JsonRecord): JsonRecord[] => snapshot.events as JsonRecord[];
+const persistedEvent = (snapshot: JsonRecord): JsonRecord => {
+  const [event] = persistedEvents(snapshot);
+  if (!event) {
+    throw new Error("Expected the persisted outbox fixture to contain an event");
+  }
+  return event;
+};
 const persistedActivePrint = (snapshot: JsonRecord): JsonRecord =>
   (snapshot.activePrints as JsonRecord)["printer-1"] as JsonRecord;
 const persistedMqtt = (snapshot: JsonRecord): JsonRecord => persistedActivePrint(snapshot).mqtt as JsonRecord;
@@ -150,25 +157,25 @@ describe.sequential("PrintNotificationCoordinator", () => {
 
   it.each([
     ["active prints as an array", (snapshot: JsonRecord) => (snapshot.activePrints = [])],
-    ["a missing event embed", (snapshot: JsonRecord) => delete persistedEvents(snapshot)[0].embed],
-    ["an unknown event kind", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].kind = "other")],
-    ["an unknown event status", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].status = "sent")],
+    ["a missing event embed", (snapshot: JsonRecord) => delete persistedEvent(snapshot).embed],
+    ["an unknown event kind", (snapshot: JsonRecord) => (persistedEvent(snapshot).kind = "other")],
+    ["an unknown event status", (snapshot: JsonRecord) => (persistedEvent(snapshot).status = "sent")],
     [
       "an attachment with a negative size",
       (snapshot: JsonRecord) => {
-        (persistedEvents(snapshot)[0].attachments as JsonRecord[])[0].size = -1;
+        (persistedEvent(snapshot).attachments as JsonRecord[])[0]!.size = -1;
       }
     ],
-    ["a non-array attachment collection", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].attachments = {})],
-    ["a fractional event timestamp", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].createdAt = 1.5)],
-    ["a negative attempt counter", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].attempts = -1)],
+    ["a non-array attachment collection", (snapshot: JsonRecord) => (persistedEvent(snapshot).attachments = {})],
+    ["a fractional event timestamp", (snapshot: JsonRecord) => (persistedEvent(snapshot).createdAt = 1.5)],
+    ["a negative attempt counter", (snapshot: JsonRecord) => (persistedEvent(snapshot).attempts = -1)],
     [
       "a malformed embed footer",
       (snapshot: JsonRecord) => {
-        (persistedEvents(snapshot)[0].embed as JsonRecord).footer = [];
+        (persistedEvent(snapshot).embed as JsonRecord).footer = [];
       }
     ],
-    ["a non-string tag", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].tags = [ForumTag.IN_PROGRESS, 1])],
+    ["a non-string tag", (snapshot: JsonRecord) => (persistedEvent(snapshot).tags = [ForumTag.IN_PROGRESS, 1])],
     ["an unknown active print state", (snapshot: JsonRecord) => (persistedActivePrint(snapshot).state = "PRINTING")],
     ["a malformed MQTT ready flag", (snapshot: JsonRecord) => (persistedMqtt(snapshot).ready = "yes")],
     [
@@ -177,22 +184,19 @@ describe.sequential("PrintNotificationCoordinator", () => {
         (persistedMqtt(snapshot).firstStatus as JsonRecord).state = "PRINTING";
       }
     ],
-    ["a malformed print identity", (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].identity = { plate: 1 })],
+    ["a malformed print identity", (snapshot: JsonRecord) => (persistedEvent(snapshot).identity = { plate: 1 })],
     [
       "a malformed failure reason",
       (snapshot: JsonRecord) => {
-        persistedEvents(snapshot)[0].lastFailure = { category: "discord-transient", status: "503" };
+        persistedEvent(snapshot).lastFailure = { category: "discord-transient", status: "503" };
       }
     ],
-    [
-      "a create event without its forum target",
-      (snapshot: JsonRecord) => (persistedEvents(snapshot)[0].kind = "create")
-    ],
+    ["a create event without its forum target", (snapshot: JsonRecord) => (persistedEvent(snapshot).kind = "create")],
     [
       "a failed event without a failure reason",
       (snapshot: JsonRecord) => {
-        persistedEvents(snapshot)[0].status = "failed";
-        delete persistedEvents(snapshot)[0].lastFailure;
+        persistedEvent(snapshot).status = "failed";
+        delete persistedEvent(snapshot).lastFailure;
       }
     ]
   ])("rejects a version-2 snapshot with %s", async (_description, corrupt) => {
@@ -228,7 +232,7 @@ describe.sequential("PrintNotificationCoordinator", () => {
         files: [expect.objectContaining({ name: "screenshot.jpg" })]
       })
     );
-    expect(mocks.deliverThreadNotification.mock.calls[0][0].embed.toJSON()).toMatchObject({
+    expect(mocks.deliverThreadNotification.mock.calls[0]?.[0].embed.toJSON()).toMatchObject({
       title: "Progress",
       footer: { text: "Bambu Lab Discord" },
       fields: [{ name: "Progress", value: "10%", inline: true }]
@@ -239,7 +243,7 @@ describe.sequential("PrintNotificationCoordinator", () => {
 
   it("restarts from a valid create event with complete print identity", async () => {
     const snapshot = validPersistedOutbox();
-    const event = persistedEvents(snapshot)[0];
+    const event = persistedEvent(snapshot);
     event.kind = "create";
     event.forumChannelId = "forum-1";
     event.title = "Workshop print";
@@ -271,7 +275,7 @@ describe.sequential("PrintNotificationCoordinator", () => {
 
   it("restarts from a valid MQTT alert and recovery journal", async () => {
     const snapshot = validPersistedOutbox();
-    const event = persistedEvents(snapshot)[0];
+    const event = persistedEvent(snapshot);
     event.kind = "mqtt-lost";
     event.status = "ambiguous";
     event.reconcileOnlyAfterRecovery = true;
@@ -288,12 +292,12 @@ describe.sequential("PrintNotificationCoordinator", () => {
       "Progress",
       "Communication rétablie"
     ]);
-    expect(mocks.deliverThreadNotification.mock.calls[0][0]).toMatchObject({
+    expect(mocks.deliverThreadNotification.mock.calls[0]?.[0]).toMatchObject({
       eventId: "event-1",
       reconcileOnly: true,
       threadId: "thread-1"
     });
-    expect(readOutbox().activePrints["printer-1"].mqtt).toBeUndefined();
+    expect(readOutbox().activePrints["printer-1"]?.mqtt).toBeUndefined();
     await coordinator.stop();
   });
 
@@ -321,7 +325,7 @@ describe.sequential("PrintNotificationCoordinator", () => {
 
     await flushCurrentTimers();
     expect(mocks.deliverThreadNotification).toHaveBeenCalledOnce();
-    expect(mocks.deliverThreadNotification.mock.calls[0][0].files[0].buffer.toString()).toBe("captured-image");
+    expect(mocks.deliverThreadNotification.mock.calls[0]?.[0].files[0]?.buffer.toString()).toBe("captured-image");
     expect(readdirSync(attachmentsPath)).toHaveLength(1);
 
     await vi.advanceTimersByTimeAsync(2_000);
@@ -410,7 +414,7 @@ describe.sequential("PrintNotificationCoordinator", () => {
     await vi.advanceTimersByTimeAsync(1);
     await flushCurrentTimers();
     expect(mocks.deliverThreadNotification).toHaveBeenCalledOnce();
-    const loss = mocks.deliverThreadNotification.mock.calls[0][0];
+    const loss = mocks.deliverThreadNotification.mock.calls[0]![0];
     expect(loss.embed.data.description).toContain("L’état actuel de l’impression est inconnu");
     expect(loss.tags).toEqual([ForumTag.MONOCOLOR, ForumTag.ATTENTION, "Workshop P1S"]);
 
@@ -421,7 +425,7 @@ describe.sequential("PrintNotificationCoordinator", () => {
     await flushCurrentTimers();
 
     expect(mocks.deliverThreadNotification).toHaveBeenCalledTimes(2);
-    expect(mocks.deliverThreadNotification.mock.calls[1][0].tags).toEqual([
+    expect(mocks.deliverThreadNotification.mock.calls[1]?.[0].tags).toEqual([
       ForumTag.MONOCOLOR,
       ForumTag.PAUSED,
       "Workshop P1S"
@@ -473,7 +477,7 @@ describe.sequential("PrintNotificationCoordinator", () => {
     await flushCurrentTimers();
 
     expect(mocks.deliverThreadNotification).toHaveBeenCalledOnce();
-    expect(mocks.deliverThreadNotification.mock.calls[0][0].embed.data.title).toBe("Communication perdue");
+    expect(mocks.deliverThreadNotification.mock.calls[0]?.[0].embed.data.title).toBe("Communication perdue");
     await coordinator.stop();
   });
 
@@ -499,7 +503,7 @@ describe.sequential("PrintNotificationCoordinator", () => {
     await flushCurrentTimers();
 
     expect(mocks.deliverThreadNotification).toHaveBeenCalledTimes(3);
-    expect(mocks.deliverThreadNotification.mock.calls[1][0]).toMatchObject({
+    expect(mocks.deliverThreadNotification.mock.calls[1]?.[0]).toMatchObject({
       reconcileOnly: true,
       threadId: "thread-1"
     });
@@ -508,7 +512,7 @@ describe.sequential("PrintNotificationCoordinator", () => {
       "Communication perdue",
       "Communication rétablie"
     ]);
-    expect(mocks.deliverThreadNotification.mock.calls[2][0].tags).toEqual([
+    expect(mocks.deliverThreadNotification.mock.calls[2]?.[0].tags).toEqual([
       ForumTag.MONOCOLOR,
       ForumTag.IN_PROGRESS,
       "Workshop P1S"
@@ -586,8 +590,8 @@ describe.sequential("PrintNotificationCoordinator", () => {
       "Communication perdue",
       "Communication rétablie"
     ]);
-    expect(mocks.deliverThreadNotification.mock.calls[2][0].tags).toContain(ForumTag.PAUSED);
-    expect(readOutbox().activePrints["printer-1"].mqtt).toBeUndefined();
+    expect(mocks.deliverThreadNotification.mock.calls[2]?.[0].tags).toContain(ForumTag.PAUSED);
+    expect(readOutbox().activePrints["printer-1"]?.mqtt).toBeUndefined();
     await coordinator.stop();
   });
 
@@ -696,8 +700,8 @@ describe.sequential("PrintNotificationCoordinator", () => {
     expect(mocks.deliverThreadNotification).toHaveBeenCalledTimes(2);
     expect(mocks.deliverThreadNotification).toHaveBeenLastCalledWith(expect.objectContaining({ threadId: "thread-a" }));
     expect(mocks.deliverPrintThread).toHaveBeenCalledOnce();
-    expect(mocks.deliverThreadNotification.mock.invocationCallOrder[1]).toBeLessThan(
-      mocks.deliverPrintThread.mock.invocationCallOrder[0]
+    expect(mocks.deliverThreadNotification.mock.invocationCallOrder[1]!).toBeLessThan(
+      mocks.deliverPrintThread.mock.invocationCallOrder[0]!
     );
     expect(readOutbox().activePrints["printer-1"]).toMatchObject({
       printKey: printB.printKey,
