@@ -230,6 +230,24 @@ describe("PrinterManager public seam", () => {
     mocks.printStopped.mockResolvedValue(embedResult);
   });
 
+  it("waits for state after a partial snapshot and then uses UNKNOWN recovery", async () => {
+    const { printerManager } = await import("../src/services/printer-manager");
+    await printerManager.startPrinter(config.id);
+    const client = mocks.clients[0];
+    if (!client) {
+      throw new Error("Expected PrinterManager to create a Bambu client");
+    }
+
+    await client.emitStatus({ currentLayer: 2 }, {});
+    expect(mocks.coordinator.recordStatus).not.toHaveBeenCalled();
+    expect(mocks.createPrintThread).not.toHaveBeenCalled();
+
+    await client.emitStatus(status(PrintState.PAUSE, 25, { currentLayer: 2 }), { currentLayer: 2 });
+
+    expect(mocks.printRecovery).toHaveBeenCalledOnce();
+    expect(mocks.createPrintThread).toHaveBeenCalledOnce();
+  });
+
   it("reports a missing printer without creating a client", async () => {
     mocks.getPrinter.mockReturnValue(undefined);
     const { printerManager } = await import("../src/services/printer-manager");

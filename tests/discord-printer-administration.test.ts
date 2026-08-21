@@ -417,10 +417,10 @@ describe("printer administration commands", () => {
       expect(mocks.removePrinter).toHaveBeenCalledWith(printer.id);
       expect(mocks.startPrinter).toHaveBeenCalledWith(printer.id);
       expect(mocks.stopPrinter.mock.invocationCallOrder[0]).toBeLessThan(
-        mocks.removePrinter.mock.invocationCallOrder[0]
+        mocks.removePrinter.mock.invocationCallOrder[0]!
       );
       expect(mocks.removePrinter.mock.invocationCallOrder[0]).toBeLessThan(
-        mocks.startPrinter.mock.invocationCallOrder[0]
+        mocks.startPrinter.mock.invocationCallOrder[0]!
       );
       expect(request.reply).toHaveBeenCalledWith({
         content: `❌ Impossible de supprimer l'imprimante **${printer.name}**`,
@@ -438,7 +438,7 @@ describe("printer administration commands", () => {
       expect(mocks.removePrinter).toHaveBeenCalledWith(printer.id);
       expect(mocks.startPrinter).not.toHaveBeenCalled();
       expect(mocks.stopPrinter.mock.invocationCallOrder[0]).toBeLessThan(
-        mocks.removePrinter.mock.invocationCallOrder[0]
+        mocks.removePrinter.mock.invocationCallOrder[0]!
       );
       expect(mocks.loggerInfo).toHaveBeenCalledWith(
         { printerId: printer.id, name: printer.name },
@@ -520,9 +520,11 @@ describe("printer administration commands", () => {
         enabled: true
       });
       expect(mocks.ensurePrinterTag.mock.invocationCallOrder[0]).toBeLessThan(
-        mocks.addPrinter.mock.invocationCallOrder[0]
+        mocks.addPrinter.mock.invocationCallOrder[0]!
       );
-      expect(mocks.addPrinter.mock.invocationCallOrder[0]).toBeLessThan(mocks.startPrinter.mock.invocationCallOrder[0]);
+      expect(mocks.addPrinter.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.startPrinter.mock.invocationCallOrder[0]!
+      );
       expect(mocks.startPrinter).toHaveBeenCalledWith(printer.id);
       expect(request.editReply).toHaveBeenCalledWith(
         "✅ Imprimante **Atelier X1C** ajoutée et démarrée\n" +
@@ -598,7 +600,11 @@ describe("printer administration commands", () => {
 
       await handlePrinterList(request);
 
-      const fields = request.reply.mock.calls[0][0].embeds[0].toJSON().fields;
+      const response = request.reply.mock.calls[0]?.[0];
+      if (!response) {
+        throw new Error("Expected printer list reply");
+      }
+      const fields = response.embeds[0]!.toJSON().fields;
       expect(fields?.map((field: { name: string }) => field.name)).toEqual([
         "🟢 Connected",
         "🟡 Connecting",
@@ -621,7 +627,11 @@ describe("printer administration commands", () => {
 
       await handlePrinterList(request);
 
-      const field = request.reply.mock.calls[0][0].embeds[0].toJSON().fields?.[0];
+      const response = request.reply.mock.calls[0]?.[0];
+      if (!response) {
+        throw new Error("Expected printer list reply");
+      }
+      const field = response.embeds[0]!.toJSON().fields?.[0];
       expect(field?.name.length).toBeLessThanOrEqual(256);
       expect(field?.value.length).toBeLessThanOrEqual(1_024);
       expect(field?.name).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u);
@@ -641,7 +651,11 @@ describe("printer administration commands", () => {
 
       await handlePrinterList(request);
 
-      const responses = [request.reply.mock.calls[0][0], ...request.followUp.mock.calls.map(call => call[0])];
+      const initialResponse = request.reply.mock.calls[0]?.[0];
+      if (!initialResponse) {
+        throw new Error("Expected initial printer list reply");
+      }
+      const responses = [initialResponse, ...request.followUp.mock.calls.map(call => call[0])];
       expect(request.followUp.mock.calls.length).toBeGreaterThan(1);
       expect(responses.every(response => response.flags === MessageFlags.Ephemeral)).toBe(true);
       for (const response of responses) {

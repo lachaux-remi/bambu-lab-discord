@@ -3,8 +3,9 @@ import { PrintState } from "../../enums";
 import { isTlsCertificateError } from "../../libs/bambu-tls";
 import { getLogger } from "../../libs/logger";
 import type { PrinterConfig } from "../../types/printer-config";
-import type { Status } from "../../types/printer-status";
+import type { Status, StatusWithState } from "../../types/printer-status";
 import { getDiscordTagsForStatus, getInitialDiscordTags } from "../../utils/discord-tags.util";
+import { normalizePrintIdentity } from "../../utils/print-identity.util";
 import BambuLabClient from "../bambu-lab";
 import {
   type ActivePrintThread,
@@ -29,22 +30,12 @@ import { printNotificationCoordinator } from "./print-notification-coordinator";
 
 const logger = getLogger("PrinterManager");
 
-const normalizeIdentityText = (value: string | number | undefined): string | undefined => {
-  const normalized = value === undefined ? "" : String(value).trim();
-  return normalized || undefined;
-};
-
-const normalizeIdentityId = (value: string | number | undefined): string | undefined => {
-  const normalized = normalizeIdentityText(value);
-  return normalized && normalized !== "0" ? normalized : undefined;
-};
-
 const buildPrintIdentity = (status: Status): PrintIdentity | undefined => {
-  const subtaskId = normalizeIdentityId(status.subtaskId);
-  const taskId = normalizeIdentityId(status.taskId);
-  const gcodeFile = normalizeIdentityText(status.gcodeFile);
-  const plate = normalizeIdentityText(status.plate);
-  const project = normalizeIdentityText(status.project);
+  const subtaskId = normalizePrintIdentity(status.subtaskId, true);
+  const taskId = normalizePrintIdentity(status.taskId, true);
+  const gcodeFile = normalizePrintIdentity(status.gcodeFile, false);
+  const plate = normalizePrintIdentity(status.plate, false);
+  const project = normalizePrintIdentity(status.project, false);
   const availableFields = {
     ...(taskId ? { taskId } : {}),
     ...(gcodeFile ? { gcodeFile } : {}),
@@ -68,7 +59,7 @@ const buildPrintIdentity = (status: Status): PrintIdentity | undefined => {
 };
 
 const getRecoveredPrintIdentity = (thread: ActivePrintThread): PrintIdentity | undefined => {
-  const project = normalizeIdentityText(thread.project);
+  const project = normalizePrintIdentity(thread.project, false);
   if (thread.identity) {
     return thread.identity.project || !project ? thread.identity : { ...thread.identity, project };
   }
@@ -455,7 +446,7 @@ class PrinterManager {
     return `${config.id}:${status.model ?? "unknown"}:${timestamp}`;
   }
 
-  private getNotificationContext(instance: PrinterInstance, printKey: string, status: Status) {
+  private getNotificationContext(instance: PrinterInstance, printKey: string, status: StatusWithState) {
     return {
       printerId: instance.config.id,
       printerName: instance.config.name,
@@ -494,6 +485,13 @@ class PrinterManager {
     const { config } = instance;
     oldStatus.state = oldStatus.state ?? PrintState.UNKNOWN;
 
+    if (newStatus.state === undefined) {
+      logger.debug({ printer: config.name, changes: Object.keys(newStatus) }, "Waiting for printer state");
+      return;
+    }
+
+    const currentStatus: StatusWithState = { ...newStatus, state: newStatus.state };
+
     logger.debug(
       {
         printer: config.name,
@@ -505,7 +503,7 @@ class PrinterManager {
     );
 
     const printKey = this.getPrintKey(config, newStatus);
-    const context = this.getNotificationContext(instance, printKey, newStatus);
+    const context = this.getNotificationContext(instance, printKey, currentStatus);
     await printNotificationCoordinator.recordStatus(context);
 
     const sendMessage = async (

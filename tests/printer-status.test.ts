@@ -138,6 +138,15 @@ describe("PrinterStatus", () => {
     });
   });
 
+  it("represents a first partial push status without invented defaults", async () => {
+    const listener = vi.fn();
+    client.on("status", listener);
+
+    await status.onUpdate({ command: MessageCommand.PUSH_STATUS, layer_num: 3 });
+
+    expect(listener).toHaveBeenCalledWith({ currentLayer: 3 }, {});
+  });
+
   it("preserves print identity and progress across a real pause-resume-finish cycle", async () => {
     const transitions: Array<{ current: Status; previous: Status }> = [];
     client.on("status", (current: Status, previous: Status) => {

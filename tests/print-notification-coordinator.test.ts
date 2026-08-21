@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ForumTag, PrintState } from "../src/enums";
-import type { Status } from "../src/types/printer-status";
+import type { Status, StatusWithState } from "../src/types/printer-status";
 
 const mocks = vi.hoisted(() => ({
   deliverPrintThread: vi.fn(),
@@ -35,7 +35,7 @@ vi.mock("../src/libs/logger", () => ({
 const originalWorkingDirectory = process.cwd();
 let workingDirectory: string;
 
-const status = (state: PrintState, overrides: Partial<Status> = {}): Status => ({
+const status = (state: PrintState, overrides: Partial<Status> = {}): StatusWithState => ({
   state,
   currentLayer: 1,
   maxLayers: 10,

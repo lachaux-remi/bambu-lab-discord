@@ -4,27 +4,21 @@ import { extractProjectImage } from "../../libs/project";
 import type { StringNumber } from "../../types/general";
 import type { PrintMessageCommand } from "../../types/printer-messages";
 import type { Status } from "../../types/printer-status";
-import type { ProjectFileCommand } from "../../types/project-file";
-import type { PushStatusCommand } from "../../types/push-status";
+import { normalizePrintIdentity } from "../../utils/print-identity.util";
 import { isMulticolorPrint } from "../../utils/print.util";
 import BambuLabClient from "../bambu-lab";
 
 const logger = getLogger("PrinterStatus");
 
-const normalizePrintId = (value: string | number | undefined): string | undefined => {
-  const normalized = value === undefined ? "" : String(value).trim();
-  return normalized && normalized !== "0" ? normalized : undefined;
-};
-
 export default class PrinterStatus {
-  private latestStatus: Status = {} as Status;
+  private latestStatus: Status = {};
 
   public constructor(private client: BambuLabClient) {}
 
   public async onUpdate(data: PrintMessageCommand): Promise<void> {
-    const newStatus: Status = {} as Status;
+    const newStatus: Status = {};
 
-    if (this.isProjectFileCommand(data)) {
+    if (data.command === MessageCommand.PROJECT_FILE) {
       logger.debug(
         { model: data.model_id, project: data.subtask_name, plate: data.plate_idx },
         "Project file received"
@@ -38,8 +32,8 @@ export default class PrinterStatus {
         newStatus.project = data.subtask_name;
       }
 
-      newStatus.subtaskId = normalizePrintId(data.subtask_id);
-      newStatus.taskId = normalizePrintId(data.task_id);
+      newStatus.subtaskId = normalizePrintIdentity(data.subtask_id, true);
+      newStatus.taskId = normalizePrintIdentity(data.task_id, true);
       newStatus.gcodeFile = data.gcode_file?.trim() || undefined;
 
       if (data.plate_idx !== undefined) {
@@ -66,7 +60,7 @@ export default class PrinterStatus {
       newStatus.remainingTime = 0;
       newStatus.startedAt = new Date().getTime();
       newStatus.cancellationRequested = false;
-    } else if (this.isPushStatusCommand(data)) {
+    } else if (data.command === MessageCommand.PUSH_STATUS) {
       logger.debug(
         {
           subtask: data.subtask_name,
@@ -84,11 +78,11 @@ export default class PrinterStatus {
       }
 
       if (data.subtask_id !== undefined) {
-        newStatus.subtaskId = normalizePrintId(data.subtask_id);
+        newStatus.subtaskId = normalizePrintIdentity(data.subtask_id, true);
       }
 
       if (data.task_id !== undefined) {
-        newStatus.taskId = normalizePrintId(data.task_id);
+        newStatus.taskId = normalizePrintIdentity(data.task_id, true);
       }
 
       if (data.gcode_file !== undefined) {
@@ -102,6 +96,7 @@ export default class PrinterStatus {
       if (data.gcode_state) {
         newStatus.state = data.gcode_state;
         const startsNewPrint =
+          this.latestStatus.state !== undefined &&
           [PrintState.FINISH, PrintState.FAILED, PrintState.IDLE].includes(this.latestStatus.state) &&
           [PrintState.PREPARE, PrintState.RUNNING, PrintState.PAUSE].includes(data.gcode_state);
         if (startsNewPrint) {
@@ -131,16 +126,13 @@ export default class PrinterStatus {
       if (data.mc_remaining_time !== undefined) {
         newStatus.remainingTime = Number(data.mc_remaining_time);
       }
-    } else if (data.command === MessageCommand.STOP) {
+    } else {
       if (data.result !== CommandResult.SUCCESS) {
         return;
       }
       newStatus.cancellationRequested = true;
       this.latestStatus.cancellationRequested = true;
       await this.client.emitCancellationRequested();
-      return;
-    } else {
-      logger.warn({ command: data.command, keys: Object.keys(data) }, "Unknown message command type");
       return;
     }
 
@@ -168,13 +160,5 @@ export default class PrinterStatus {
     } else {
       logger.debug({ changes: Object.keys(newStatus) }, "Non-critical update, skipping event emission");
     }
-  }
-
-  protected isPushStatusCommand(data: PrintMessageCommand): data is PushStatusCommand {
-    return data.command === MessageCommand.PUSH_STATUS;
-  }
-
-  protected isProjectFileCommand(data: PrintMessageCommand): data is ProjectFileCommand {
-    return data.command === MessageCommand.PROJECT_FILE;
   }
 }

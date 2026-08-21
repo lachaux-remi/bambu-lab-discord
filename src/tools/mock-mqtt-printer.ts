@@ -155,7 +155,11 @@ const main = async (): Promise<void> => {
         }
         await publish(message);
         logger.info(
-          { step: index + 1, command: message.print.command, state: message.print.gcode_state },
+          {
+            step: index + 1,
+            command: message.print.command,
+            state: message.print.command === MessageCommand.PUSH_STATUS ? message.print.gcode_state : undefined
+          },
           "Published simulated printer message"
         );
       }

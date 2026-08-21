@@ -536,7 +536,7 @@ describe("BambuLabClient MQTT lifecycle", () => {
     });
     const observedProgress: number[] = [];
     client.on("status", async status => {
-      observedProgress.push(status.progressPercent);
+      observedProgress.push(status.progressPercent!);
       if (status.progressPercent === 10) {
         await firstListenerFinished;
       }
@@ -563,11 +563,51 @@ describe("BambuLabClient MQTT lifecycle", () => {
     await vi.waitFor(() => expect(observedProgress).toEqual([10, 20]));
   });
 
+  it("sanitizes malformed print fields and continues the message queue", async () => {
+    const statuses: Array<{ gcodeFile?: string; progressPercent?: number; state?: PrintState }> = [];
+    client.on("status", status => {
+      statuses.push({
+        gcodeFile: status.gcodeFile,
+        progressPercent: status.progressPercent,
+        state: status.state
+      });
+    });
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+    mqttClient.publish.mockClear();
+
+    const emitReport = (print: unknown): void => {
+      mqttClient.emit("message", "device/SERIAL-1/report", Buffer.from(JSON.stringify({ print })));
+    };
+
+    mqttClient.emit("message", "device/SERIAL-1/report", Buffer.from('{"print":"sensitive-fragment"'));
+    emitReport({ command: MessageCommand.PROJECT_FILE, gcode_file: 123, plate_idx: 0 });
+    emitReport({
+      command: MessageCommand.PUSH_STATUS,
+      lights_report: [null, "invalid", { node: LightNode.CHAMBER, mode: LightMode.ON }, { node: "fan", mode: 1 }]
+    });
+    emitReport({ command: MessageCommand.PUSH_STATUS, mc_percent: "not-a-number" });
+    emitReport("malformed");
+    emitReport({ command: MessageCommand.PUSH_STATUS, gcode_state: PrintState.RUNNING, mc_percent: 25 });
+
+    await vi.waitFor(() => expect(statuses).toHaveLength(2));
+    expect(statuses).toEqual([
+      { gcodeFile: undefined, progressPercent: 0, state: PrintState.PREPARE },
+      { gcodeFile: undefined, progressPercent: 25, state: PrintState.RUNNING }
+    ]);
+    expect(JSON.stringify(loggerMock.error.mock.calls)).not.toContain("sensitive-fragment");
+
+    await expect(client.takeScreenshotWithLight()).resolves.toBeNull();
+    expect(takeScreenshotMock).toHaveBeenCalledOnce();
+    expect(mqttClient.publish).not.toHaveBeenCalled();
+  });
+
   it("drains accepted MQTT messages and rejects new messages before ending the transport", async () => {
     const statusProcessing = Promise.withResolvers<void>();
     const observedProgress: number[] = [];
     client.on("status", async status => {
-      observedProgress.push(status.progressPercent);
+      observedProgress.push(status.progressPercent!);
       await statusProcessing.promise;
     });
     const connection = client.connect();
