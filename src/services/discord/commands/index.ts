@@ -12,6 +12,7 @@ import { getDiscordClient } from "../bot";
 import { handlePrinterAdd } from "./printer-add";
 import { handlePrinterEdit } from "./printer-edit";
 import { handlePrinterList } from "./printer-list";
+import { handlePrinterReconnect } from "./printer-reconnect";
 import { handlePrinterRemove } from "./printer-remove";
 import { handlePrinterScreenshot } from "./printer-screenshot";
 import { handlePrinterStatus } from "./printer-status";
@@ -64,6 +65,14 @@ const commands = [
       sub
         .setName("status")
         .setDescription("Afficher l'état détaillé d'une imprimante")
+        .addStringOption(opt =>
+          opt.setName("name").setDescription("Nom de l'imprimante").setRequired(true).setAutocomplete(true)
+        )
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("reconnect")
+        .setDescription("Forcer la reconnexion immédiate d'une imprimante")
         .addStringOption(opt =>
           opt.setName("name").setDescription("Nom de l'imprimante").setRequired(true).setAutocomplete(true)
         )
@@ -178,6 +187,9 @@ export const setupCommandHandlers = (): void => {
           break;
         case "status":
           await handlePrinterStatus(interaction);
+          break;
+        case "reconnect":
+          await handlePrinterReconnect(interaction);
           break;
         case "edit":
           await handlePrinterEdit(interaction);

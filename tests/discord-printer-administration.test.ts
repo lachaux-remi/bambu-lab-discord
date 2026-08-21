@@ -105,6 +105,80 @@ describe("printer administration commands", () => {
     );
   });
 
+  it("reconnecte immédiatement une imprimante active", async () => {
+    const { handlePrinterReconnect } = await import("../src/services/discord/commands/printer-reconnect");
+    const request = interaction();
+
+    await handlePrinterReconnect(request as never);
+
+    expect(request.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
+    expect(mocks.restartPrinter).toHaveBeenCalledWith(printer.id);
+    expect(request.editReply).toHaveBeenCalledWith(`✅ Imprimante **${printer.name}** reconnectée.`);
+  });
+
+  it("démarre un nouveau cycle via restart quand l'instance activée est indisponible", async () => {
+    mocks.getPrinterStatus.mockReturnValue({ running: false, connected: false });
+    const { handlePrinterReconnect } = await import("../src/services/discord/commands/printer-reconnect");
+    const request = interaction();
+
+    await handlePrinterReconnect(request as never);
+
+    expect(mocks.restartPrinter).toHaveBeenCalledWith(printer.id);
+    expect(request.editReply).toHaveBeenCalledWith(`✅ Imprimante **${printer.name}** reconnectée.`);
+  });
+
+  it("refuse de démarrer implicitement une imprimante désactivée", async () => {
+    mocks.getPrinter.mockReturnValue({ ...printer, enabled: false });
+    const { handlePrinterReconnect } = await import("../src/services/discord/commands/printer-reconnect");
+    const request = interaction();
+
+    await handlePrinterReconnect(request as never);
+
+    expect(mocks.restartPrinter).not.toHaveBeenCalled();
+    expect(request.deferReply).not.toHaveBeenCalled();
+    expect(request.reply).toHaveBeenCalledWith({
+      content: `❌ L'imprimante **${printer.name}** est désactivée. Réactivez-la avec \`/printer edit\` avant de demander une reconnexion.`,
+      flags: MessageFlags.Ephemeral
+    });
+  });
+
+  it("signale clairement une imprimante inexistante", async () => {
+    mocks.getPrinter.mockReturnValue(undefined);
+    const { handlePrinterReconnect } = await import("../src/services/discord/commands/printer-reconnect");
+    const request = interaction({ name: "missing" });
+
+    await handlePrinterReconnect(request as never);
+
+    expect(mocks.restartPrinter).not.toHaveBeenCalled();
+    expect(request.reply).toHaveBeenCalledWith({
+      content: "❌ Imprimante **missing** non trouvée",
+      flags: MessageFlags.Ephemeral
+    });
+  });
+
+  it("signale un échec de reconnexion retourné par le manager", async () => {
+    mocks.restartPrinter.mockResolvedValue(false);
+    const { handlePrinterReconnect } = await import("../src/services/discord/commands/printer-reconnect");
+    const request = interaction();
+
+    await handlePrinterReconnect(request as never);
+
+    expect(request.editReply).toHaveBeenCalledWith(
+      `❌ La reconnexion immédiate de l'imprimante **${printer.name}** a échoué. Vérifiez sa configuration, sa disponibilité et les logs.`
+    );
+  });
+
+  it("laisse le traitement global gérer une exception du manager après le defer", async () => {
+    mocks.restartPrinter.mockRejectedValue(new Error("disconnect failed"));
+    const { handlePrinterReconnect } = await import("../src/services/discord/commands/printer-reconnect");
+    const request = interaction();
+
+    await expect(handlePrinterReconnect(request as never)).rejects.toThrow("disconnect failed");
+
+    expect(request.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
+    expect(request.editReply).not.toHaveBeenCalled();
+  });
+
   it("redémarre après un renommage pour actualiser la configuration runtime", async () => {
     const { handlePrinterEdit } = await import("../src/services/discord/commands/printer-edit");
     const request = interaction({ new_name: "Atelier X1C" });

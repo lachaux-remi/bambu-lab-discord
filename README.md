@@ -121,10 +121,12 @@ Une fois le bot démarré, utilisez ces commandes Discord :
 | `/printer remove <name>`                                    | Supprimer une imprimante               |
 | `/printer list`                                             | Lister les imprimantes configurées     |
 | `/printer status <name>`                                    | Afficher l'état détaillé               |
+| `/printer reconnect <name>`                                 | Forcer une reconnexion immédiate       |
 | `/printer edit <name> [options]`                            | Modifier et activer/désactiver         |
 | `/printer screenshot <name>`                                | Publier une capture caméra de test     |
 
 `/printer edit` permet notamment de modifier les ports MQTT/RTC et d'activer ou désactiver immédiatement l'imprimante.
+`/printer reconnect` redémarre le client MQTT d'une imprimante activée sans modifier sa configuration.
 
 ### Exemple d'ajout d'imprimante
 
