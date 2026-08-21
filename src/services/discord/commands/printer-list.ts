@@ -18,8 +18,18 @@ interface PrinterField {
   value: string;
 }
 
-const truncate = (value: string, maximum: number): string =>
-  value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`;
+const truncate = (value: string, maximum: number): string => {
+  if (value.length <= maximum) {
+    return value;
+  }
+
+  let end = maximum - 1;
+  const finalCodeUnit = value.charCodeAt(end - 1);
+  if (finalCodeUnit >= 0xd800 && finalCodeUnit <= 0xdbff) {
+    end -= 1;
+  }
+  return `${value.slice(0, end)}…`;
+};
 
 export const handlePrinterList = async (interaction: ChatInputCommandInteraction): Promise<void> => {
   const printers = getAllPrinters();
