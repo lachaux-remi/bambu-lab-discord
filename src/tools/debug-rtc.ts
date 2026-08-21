@@ -103,5 +103,8 @@ export const runRtcDebug = async (): Promise<void> => {
 };
 
 if (require.main === module) {
-  void runRtcDebug();
+  void runRtcDebug().catch(() => {
+    logger.error("Failed to run RTC debug test");
+    process.exitCode = 1;
+  });
 }

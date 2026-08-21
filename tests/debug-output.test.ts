@@ -1,5 +1,6 @@
+import { spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -44,5 +45,31 @@ describe("debug output files", () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
 
     expect(() => saveScreenshot(image, path)).toThrow(expect.objectContaining({ code: "EEXIST" }));
+  });
+
+  it("handles a rejected direct RTC debug run with a safe log and exit code 1", () => {
+    const configDirectory = temporaryPath("config");
+    mkdirSync(configDirectory);
+    const sensitiveValue = "sensitive-config-value-must-not-appear";
+    writeFileSync(join(configDirectory, "printers.json"), `{invalid-json:${sensitiveValue}`, "utf8");
+    const environment = { ...process.env, LOG_FORMAT: "json" };
+    delete environment.PRINTER_ADDRESS;
+    delete environment.PRINTER_ACCESS_CODE;
+    delete environment.PRINTER_SERIAL_NUMBER;
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
+        join(process.cwd(), "src", "tools", "debug-rtc.ts")
+      ],
+      { cwd: workingDirectory, encoding: "utf8", env: environment }
+    );
+    const output = `${result.stdout}${result.stderr}`;
+
+    expect(result.status).toBe(1);
+    expect(output.match(/Failed to run RTC debug test/g)).toHaveLength(1);
+    expect(output).not.toContain(sensitiveValue);
+    expect(output).not.toContain("unhandledRejection");
   });
 });
