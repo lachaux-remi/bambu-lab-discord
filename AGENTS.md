@@ -40,6 +40,7 @@ Bambu camera protocol. All images are attached directly to Discord messages (no 
 ### Validation
 
 - `pnpm run lint` - Run ESLint and Prettier checks
+- `pnpm run typecheck:test` - Strictly type-check source, tests, and Vitest configuration without emitting files
 - `pnpm run test` - Run the Vitest suite
 - `pnpm run test:coverage` - Run tests with coverage thresholds
 - `pnpm run build` - Type-check and compile production output
@@ -243,9 +244,10 @@ installing them automatically.
 
 ## TypeScript Configuration
 
-- Target: ESNext with NodeNext module resolution
+- Target: ESNext
 - Strict mode enabled
-- Source: `src/**/*.ts` → Output: `dist/`
+- `tsconfig.json` drives production builds with NodeNext resolution (`src/**/*.ts` → `dist/`)
+- `tsconfig.test.json` extends production settings to check `src`, `tests`, and `vitest.config.mts` without emitting files
 - Uses `tsx` for development, `tsc` for production builds
 
 ## Code Style
