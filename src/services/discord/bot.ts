@@ -54,13 +54,13 @@ interface DeliveryBase {
   reconcileOnly: boolean;
 }
 
-interface PrintThreadDeliveryInput extends DeliveryBase {
+export interface PrintThreadDeliveryInput extends DeliveryBase {
   printKey: string;
   title: string;
   forumChannelId: string;
 }
 
-interface ThreadNotificationDeliveryInput extends DeliveryBase {
+export interface ThreadNotificationDeliveryInput extends DeliveryBase {
   threadId: string;
   messageId?: string;
 }

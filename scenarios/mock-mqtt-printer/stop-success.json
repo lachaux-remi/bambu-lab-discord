@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "stop-success",
+  "description": "A successful STOP followed by FAILED is classified as cancellation.",
+  "steps": [
+    { "action": "project", "payload": { "model_id": "stop-success", "subtask_name": "Annulation STOP" } },
+    { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 42 } },
+    { "action": "stop", "result": "success" },
+    { "action": "status", "state": "FAILED", "payload": { "mc_percent": 42 } }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "FAILED", "progressPercent": 42 },
+    "includeNotificationTitles": ["Démarrage de l'impression", "Impression annulée"],
+    "excludeNotificationTitles": ["Impression échouée"]
+  }
+}

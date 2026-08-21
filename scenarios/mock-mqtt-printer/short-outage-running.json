@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "short-outage-running",
+  "description": "A logical 30-second outage reconnects before the 60-second alert threshold.",
+  "steps": [
+    { "action": "project", "payload": { "model_id": "short-outage", "subtask_name": "Coupure courte" } },
+    { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 20 } },
+    {
+      "action": "outage",
+      "durationMs": 30000,
+      "resume": { "state": "RUNNING", "payload": { "mc_percent": 25 } }
+    },
+    { "action": "status", "state": "FINISH", "payload": { "mc_percent": 100 } }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "FINISH", "progressPercent": 100 },
+    "includeNotificationTitles": ["Démarrage de l'impression", "Impression terminée"],
+    "excludeNotificationTitles": ["Communication perdue", "Communication rétablie"],
+    "minimumPushallCount": 2
+  }
+}

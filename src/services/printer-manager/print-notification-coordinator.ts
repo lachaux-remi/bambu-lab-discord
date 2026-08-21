@@ -32,10 +32,17 @@ import { createBaseEmbed } from "../discord/embeds";
 import { DISCORD_ATTACHMENT_SIZE_LIMIT } from "../discord/payload";
 
 const logger = getLogger("PrintNotificationCoordinator");
-const OUTBOX_PATH = join(process.cwd(), "config", "notification-outbox.json");
-const ATTACHMENTS_PATH = join(process.cwd(), "config", "notification-attachments");
 const MQTT_LOSS_DELAY_MS = 60_000;
 const MAX_RETRY_DELAY_MS = 60_000;
+
+export interface PrintNotificationCoordinatorOptions {
+  storageDirectory?: string;
+  mqttLossDelayMs?: number;
+  deliverPrintThread?: typeof deliverPrintThread;
+  deliverThreadNotification?: typeof deliverThreadNotification;
+  setActivePrintThread?: typeof setActivePrintThread;
+  removeActivePrintThread?: typeof removeActivePrintThread;
+}
 
 type EventKind = "create" | "message" | "mqtt-lost" | "mqtt-recovered";
 type EventStatus = "acquiring" | "pending" | "ambiguous" | "failed" | "superseded";
@@ -103,8 +110,8 @@ interface PrintContext {
 
 const emptyState = (): OutboxState => ({ version: 2, events: [], activePrints: {} });
 
-const writeState = (state: OutboxState): void => {
-  writeJsonAtomic(OUTBOX_PATH, state);
+const writeState = (path: string, state: OutboxState): void => {
+  writeJsonAtomic(path, state);
 };
 
 const EVENT_KINDS = new Set<string>(["create", "message", "mqtt-lost", "mqtt-recovered"]);
@@ -328,18 +335,18 @@ const isOutboxState = (value: unknown): value is OutboxState =>
   isRecord(value.activePrints) &&
   Object.values(value.activePrints).every(isActivePrintState);
 
-const loadState = (): OutboxState => {
-  if (!existsSync(OUTBOX_PATH)) {
+const loadState = (path: string): OutboxState => {
+  if (!existsSync(path)) {
     return emptyState();
   }
   try {
-    const value: unknown = JSON.parse(readFileSync(OUTBOX_PATH, "utf8"));
+    const value: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (!isOutboxState(value)) {
       throw new Error("Unsupported notification outbox schema");
     }
     return value;
   } catch (error) {
-    throw new Error(`Failed to load notification outbox from ${OUTBOX_PATH}`, { cause: error });
+    throw new Error(`Failed to load notification outbox from ${path}`, { cause: error });
   }
 };
 
@@ -361,12 +368,38 @@ export class PrintNotificationCoordinator {
   private retryTimer?: NodeJS.Timeout;
   private readonly lossTimers = new Map<string, NodeJS.Timeout>();
   private readonly printerQueues = new Map<string, Promise<void>>();
+  private readonly outboxPath: string;
+  private readonly attachmentsPath: string;
+  private readonly mqttLossDelayMs: number;
+  private readonly delivery: {
+    printThread: typeof deliverPrintThread;
+    threadNotification: typeof deliverThreadNotification;
+  };
+  private readonly activeThreads: {
+    set: typeof setActivePrintThread;
+    remove: typeof removeActivePrintThread;
+  };
+
+  public constructor(options: PrintNotificationCoordinatorOptions = {}) {
+    const storageDirectory = options.storageDirectory ?? join(process.cwd(), "config");
+    this.outboxPath = join(storageDirectory, "notification-outbox.json");
+    this.attachmentsPath = join(storageDirectory, "notification-attachments");
+    this.mqttLossDelayMs = options.mqttLossDelayMs ?? MQTT_LOSS_DELAY_MS;
+    this.delivery = {
+      printThread: options.deliverPrintThread ?? deliverPrintThread,
+      threadNotification: options.deliverThreadNotification ?? deliverThreadNotification
+    };
+    this.activeThreads = {
+      set: options.setActivePrintThread ?? setActivePrintThread,
+      remove: options.removeActivePrintThread ?? removeActivePrintThread
+    };
+  }
 
   public start(): void {
     if (this.started) {
       return;
     }
-    this.state = loadState();
+    this.state = loadState(this.outboxPath);
     const supersededAttachments: PersistedAttachment[] = [];
     let stateChanged = false;
     for (const event of this.state.events) {
@@ -746,29 +779,29 @@ export class PrintNotificationCoordinator {
     if (files.length === 0) {
       return [];
     }
-    mkdirSync(ATTACHMENTS_PATH, { recursive: true, mode: 0o700 });
+    mkdirSync(this.attachmentsPath, { recursive: true, mode: 0o700 });
     const attachments = files.map((file, index) => this.persistAttachment(eventId, index, file.name, file.buffer));
-    fsyncDirectory(ATTACHMENTS_PATH);
+    fsyncDirectory(this.attachmentsPath);
     return attachments;
   }
 
   private persistAttachment(eventId: string, index: number, name: string, buffer: Buffer): PersistedAttachment {
-    mkdirSync(ATTACHMENTS_PATH, { recursive: true, mode: 0o700 });
+    mkdirSync(this.attachmentsPath, { recursive: true, mode: 0o700 });
     const diskName = `${eventId}-${index}-${basename(name)}`;
-    const descriptor = openSync(join(ATTACHMENTS_PATH, diskName), "w", 0o600);
+    const descriptor = openSync(join(this.attachmentsPath, diskName), "w", 0o600);
     try {
       writeFileSync(descriptor, buffer);
       fsyncSync(descriptor);
     } finally {
       closeSync(descriptor);
     }
-    fsyncDirectory(ATTACHMENTS_PATH);
+    fsyncDirectory(this.attachmentsPath);
     return { name, file: diskName, size: buffer.length };
   }
 
   private readAttachments(event: NotificationEvent): Array<{ name: string; buffer: Buffer }> {
     return event.attachments.flatMap(attachment => {
-      const path = join(ATTACHMENTS_PATH, basename(attachment.file));
+      const path = join(this.attachmentsPath, basename(attachment.file));
       return existsSync(path) ? [{ name: attachment.name, buffer: readFileSync(path) }] : [];
     });
   }
@@ -808,7 +841,7 @@ export class PrintNotificationCoordinator {
           this.persist();
         });
       },
-      Math.max(0, lostAt + MQTT_LOSS_DELAY_MS - Date.now())
+      Math.max(0, lostAt + this.mqttLossDelayMs - Date.now())
     );
     this.lossTimers.set(printerId, timer);
   }
@@ -880,7 +913,7 @@ export class PrintNotificationCoordinator {
     const files = this.readAttachments(event);
     const result =
       event.kind === "create"
-        ? await deliverPrintThread({
+        ? await this.delivery.printThread({
             eventId: event.id,
             printKey: event.printKey,
             title: event.title ?? "Impression",
@@ -891,7 +924,7 @@ export class PrintNotificationCoordinator {
             reconcileOnly
           })
         : event.threadId
-          ? await deliverThreadNotification({
+          ? await this.delivery.threadNotification({
               eventId: event.id,
               threadId: event.threadId,
               messageId: event.messageId,
@@ -917,7 +950,7 @@ export class PrintNotificationCoordinator {
       this.backfillEventTargets(event.printerId, event.printKey, reconciledThreadId);
       if (active?.printKey === event.printKey) {
         active.threadId = reconciledThreadId;
-        setActivePrintThread(event.printerId, reconciledThreadId, event.identity);
+        this.activeThreads.set(event.printerId, reconciledThreadId, event.identity);
       }
       if (result.status !== "sent") {
         event.status = "ambiguous";
@@ -946,7 +979,7 @@ export class PrintNotificationCoordinator {
       }
       if (event.terminal && active?.printKey === event.printKey) {
         delete this.state.activePrints[event.printerId];
-        removeActivePrintThread(event.printerId);
+        this.activeThreads.remove(event.printerId);
       }
       acknowledgedAttachments = this.detachAttachments(event);
       this.state.events = this.state.events.filter(candidate => candidate.id !== event.id);
@@ -1038,7 +1071,7 @@ export class PrintNotificationCoordinator {
   private deleteAttachmentFiles(attachments: PersistedAttachment[]): void {
     for (const attachment of attachments) {
       try {
-        unlinkSync(join(ATTACHMENTS_PATH, basename(attachment.file)));
+        unlinkSync(join(this.attachmentsPath, basename(attachment.file)));
       } catch {
         // The file is already absent.
       }
@@ -1046,14 +1079,14 @@ export class PrintNotificationCoordinator {
   }
 
   private cleanOrphanAttachments(): void {
-    if (!existsSync(ATTACHMENTS_PATH)) {
+    if (!existsSync(this.attachmentsPath)) {
       return;
     }
     let changed = false;
     for (const event of this.state.events) {
       const missingNames = new Set<string>();
       event.attachments = event.attachments.filter(attachment => {
-        const exists = existsSync(join(ATTACHMENTS_PATH, basename(attachment.file)));
+        const exists = existsSync(join(this.attachmentsPath, basename(attachment.file)));
         if (!exists) {
           missingNames.add(attachment.name);
           changed = true;
@@ -1065,9 +1098,9 @@ export class PrintNotificationCoordinator {
     const referenced = new Set(
       this.state.events.flatMap(event => event.attachments.map(attachment => attachment.file))
     );
-    for (const file of readdirSync(ATTACHMENTS_PATH)) {
+    for (const file of readdirSync(this.attachmentsPath)) {
       if (!referenced.has(file)) {
-        rmSync(join(ATTACHMENTS_PATH, file), { force: true });
+        rmSync(join(this.attachmentsPath, file), { force: true });
       }
     }
     if (changed) {
@@ -1076,7 +1109,7 @@ export class PrintNotificationCoordinator {
   }
 
   private persist(): void {
-    writeState(this.state);
+    writeState(this.outboxPath, this.state);
   }
 }
 

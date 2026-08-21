@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "malformed-then-valid",
+  "description": "Malformed raw JSON is ignored and the following valid print completes.",
+  "steps": [
+    { "action": "raw", "payload": "{\"print\":\"malformed-fragment\"" },
+    { "action": "project", "payload": { "model_id": "malformed", "subtask_name": "Après malformé" } },
+    { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 10 } },
+    { "action": "status", "state": "FINISH", "payload": { "mc_percent": 100 } }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "FINISH", "progressPercent": 100 },
+    "includeNotificationTitles": ["Démarrage de l'impression", "Impression terminée"]
+  }
+}

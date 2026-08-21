@@ -255,10 +255,17 @@ pnpm run debug:rtc            # Tester les captures RTC
 
 ### Émulateur MQTT pour le développement
 
-Pour développer sans imprimante accessible sur le réseau, démarrez l'émulateur dans un premier terminal :
+Le banc de fausse imprimante utilise des scénarios JSON versionnés dans `scenarios/mock-mqtt-printer/`. Un scénario
+enchaîne les actions `project`, `status`, `stop`, `raw`, `burst`, `outage`, `restart` et `wait`; l'outil fabrique les
+enveloppes `PROJECT_FILE`/`PUSH_STATUS`, gère Aedes, les `pushall`, les coupures, la reconnexion et le redémarrage du
+gestionnaire. Les champs de `payload` restent partiels comme les vrais rapports Bambu.
+
+Pour servir le scénario par défaut à un bot lancé séparément :
 
 ```bash
 pnpm run dev:mqtt-emulator
+# ou un scénario précis
+pnpm run dev:mqtt-emulator -- --serve scenarios/mock-mqtt-printer/stop-success.json
 ```
 
 Il expose une fausse imprimante Bambu Lab sur `mqtt://127.0.0.1:1883`. Configurez le bot avec :
@@ -269,9 +276,41 @@ Il expose une fausse imprimante Bambu Lab sur `mqtt://127.0.0.1:1883`. Configure
 - code d'accès : `mock-access-code`
 - variable d'environnement : `MQTT_PROTOCOL=mqtt`
 
-Au premier `pushall` du bot, l'émulateur joue automatiquement un scénario complet : préparation, démarrage,
-progression, pause, reprise et fin réussie. Le MQTT sécurisé (`mqtts`) reste utilisé par défaut lorsque
-`MQTT_PROTOCOL` n'est pas défini.
+Chaque `pushall` rejoue le scénario; un `pushall` de reconnexion pendant une coupure poursuit le scénario en cours. Le
+MQTT sécurisé (`mqtts`) reste utilisé par défaut pour le bot lorsque `MQTT_PROTOCOL` n'est pas défini.
+En mode CI, `restart` recrée le gestionnaire et le coordinateur; en mode serveur, cette action attend le prochain
+`pushall` d'un bot redémarré séparément avant de publier l'état de reprise choisi.
+
+Le mode non interactif démarre lui-même le vrai `BambuLabClient` et le vrai `PrinterManager`, mais remplace la livraison
+Discord par un adaptateur déterministe et utilise un stockage temporaire :
+
+```bash
+pnpm run test:mqtt-scenario -- scenarios/mock-mqtt-printer/long-outage-running.json
+pnpm run test:mqtt-scenario -- --all
+```
+
+Les coupures et le seuil d'alerte de 60 secondes utilisent la même échelle de temps (`0.01` par défaut en CI). Chaque
+exécution écrit une ligne `SCENARIO_RESULT` JSON. `status: "passed"`, `shutdown: "clean"` et le code de sortie `0`
+indiquent le succès; une assertion ou un arrêt incomplet produit `status: "failed"` et un code non nul.
+
+Scénarios fournis : impression réussie, coupure courte avec reprise `RUNNING`, coupure longue avec reprise `RUNNING`,
+`PAUSE` ou terminale et restauration des tags, redémarrage pendant une impression sans second thread, brut malformé
+puis valide, statut partiel puis valide, `STOP success`, rafale/backlog borné et arrêt contrôlé. Le mode CI par défaut ne
+charge pas `.env` et ne contacte jamais Discord.
+
+Un smoke test Discord réel est disponible uniquement sur activation explicite et requiert aussi `DISCORD_BOT_TOKEN`
+dans l'environnement. Les deux IDs restent hors du dépôt et la cible est vérifiée comme forum de la guilde avant toute
+écriture :
+
+```bash
+MOCK_DISCORD_GUILD_ID=<guild-id> \
+MOCK_DISCORD_FORUM_CHANNEL_ID=<forum-id> \
+pnpm run test:mqtt-scenario -- --discord-e2e scenarios/mock-mqtt-printer/discord-e2e-smoke.json
+```
+
+Ce banc ne simule pas RTC : les captures sont remplacées par `null` pour isoler MQTT/notifications, car les tests socket
+de `src/libs/rtc/` couvrent déjà le protocole, les trames et les erreurs. Il ne valide donc pas une image caméra ni la
+restauration physique de l'éclairage sans imprimante.
 
 ## Déploiement Docker
 

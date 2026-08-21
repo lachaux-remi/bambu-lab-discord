@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "discord-e2e-smoke",
+  "description": "Explicit real-Discord smoke scenario; never selected by the ordinary serve default.",
+  "steps": [
+    {
+      "action": "project",
+      "payload": {
+        "model_id": "amp-e2e-smoke",
+        "subtask_name": "[Amp E2E] Banc MQTT scénarisé",
+        "plate_idx": 1
+      }
+    },
+    { "action": "status", "state": "RUNNING", "payload": { "layer_num": 1, "total_layer_num": 10, "mc_percent": 10 } },
+    { "action": "status", "state": "PAUSE", "payload": { "layer_num": 4, "mc_percent": 40 } },
+    { "action": "status", "state": "RUNNING", "payload": { "layer_num": 4, "mc_percent": 40 } },
+    { "action": "status", "state": "FINISH", "payload": { "layer_num": 10, "mc_percent": 100 } }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "FINISH", "progressPercent": 100 },
+    "includeNotificationTitles": [
+      "Démarrage de l'impression",
+      "Impression en pause",
+      "Reprise de l'impression",
+      "Impression terminée"
+    ]
+  }
+}

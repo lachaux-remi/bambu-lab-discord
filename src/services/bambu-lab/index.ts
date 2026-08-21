@@ -42,6 +42,11 @@ interface ConnectionAttempt {
   cancel: (error: Error) => Promise<void>;
 }
 
+export interface BambuLabClientConnectionOptions {
+  protocol?: "mqtt" | "mqtts";
+  reconnectPeriodMs?: number;
+}
+
 enum MqttConnectionState {
   PENDING = "pending",
   RETRYING = "retrying",
@@ -78,14 +83,15 @@ export default class BambuLabClient extends EventEmitter {
 
   public constructor(
     config: PrinterConfig,
-    private readonly connectTimeoutMs: number = MQTT_CONNECT_TIMEOUT_MS
+    private readonly connectTimeoutMs: number = MQTT_CONNECT_TIMEOUT_MS,
+    private readonly connectionOptions: BambuLabClientConnectionOptions = {}
   ) {
     super();
 
     this.config = config;
     this.topicReport = `device/${config.serial}/report`;
     this.topicRequest = `device/${config.serial}/request`;
-    this.brokerAddress = `${MQTT_PROTOCOL}://${config.ip}:${config.port}`;
+    this.brokerAddress = `${connectionOptions.protocol ?? MQTT_PROTOCOL}://${config.ip}:${config.port}`;
 
     this.printerStatus = new PrinterStatus(this);
   }
@@ -151,8 +157,10 @@ export default class BambuLabClient extends EventEmitter {
         username: BAMBU_USERNAME,
         password: this.config.accessCode,
         connectTimeout: this.connectTimeoutMs,
-        reconnectPeriod: 5000,
-        ...(MQTT_PROTOCOL === "mqtts" ? getBambuTlsOptions(this.config.serial) : {})
+        reconnectPeriod: this.connectionOptions.reconnectPeriodMs ?? 5000,
+        ...((this.connectionOptions.protocol ?? MQTT_PROTOCOL) === "mqtts"
+          ? getBambuTlsOptions(this.config.serial)
+          : {})
       });
       this.mqttClient = mqttClient;
       let connectionState = MqttConnectionState.PENDING;

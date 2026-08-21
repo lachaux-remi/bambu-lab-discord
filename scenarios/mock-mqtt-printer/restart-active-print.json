@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "restart-active-print",
+  "description": "Restarts the real manager and coordinator during an active print and recovers the existing thread.",
+  "steps": [
+    { "action": "project", "payload": { "model_id": "restart-active", "subtask_name": "Reprise après redémarrage" } },
+    { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 20 } },
+    {
+      "action": "restart",
+      "resume": {
+        "state": "RUNNING",
+        "payload": {
+          "model_id": "restart-active",
+          "subtask_name": "Reprise après redémarrage",
+          "mc_percent": 25
+        }
+      }
+    },
+    { "action": "status", "state": "FINISH", "payload": { "mc_percent": 100 } }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "FINISH", "progressPercent": 100 },
+    "includeNotificationTitles": ["Démarrage de l'impression", "Impression terminée"],
+    "minimumPushallCount": 2,
+    "threadCount": 1
+  }
+}

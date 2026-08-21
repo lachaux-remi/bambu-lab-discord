@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "long-outage-terminal",
+  "description": "A logical 65-second outage raises an alert, then the first recovered snapshot is terminal.",
+  "steps": [
+    { "action": "project", "payload": { "model_id": "long-terminal", "subtask_name": "Fin hors ligne" } },
+    { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 80 } },
+    {
+      "action": "outage",
+      "durationMs": 65000,
+      "resume": { "state": "FINISH", "payload": { "mc_percent": 100 } }
+    }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "FINISH", "progressPercent": 100 },
+    "includeNotificationTitles": ["Démarrage de l'impression", "Communication perdue", "Impression terminée"],
+    "excludeNotificationTitles": ["Communication rétablie"],
+    "minimumPushallCount": 2,
+    "requiredTagsByNotificationTitle": {
+      "Communication perdue": ["Attention"],
+      "Impression terminée": ["Réussi"]
+    }
+  }
+}

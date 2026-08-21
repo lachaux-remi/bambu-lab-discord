@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "controlled-shutdown",
+  "description": "Leaves an active print so the runner must drain queues and stop the real manager and broker cleanly.",
+  "steps": [
+    { "action": "project", "payload": { "model_id": "shutdown", "subtask_name": "Arrêt contrôlé" } },
+    { "action": "status", "state": "RUNNING", "payload": { "mc_percent": 15 } }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "RUNNING", "progressPercent": 15 },
+    "includeNotificationTitles": ["Démarrage de l'impression"]
+  }
+}

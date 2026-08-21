@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "name": "successful-print",
+  "description": "Preparation, running, pause, resume, progress and successful completion.",
+  "steps": [
+    {
+      "action": "project",
+      "payload": {
+        "model_id": "scenario-benchy",
+        "plate_idx": "1",
+        "subtask_name": "Benchy MQTT scénarisé",
+        "ams_mapping": [0, 1]
+      }
+    },
+    {
+      "action": "status",
+      "state": "RUNNING",
+      "payload": {
+        "layer_num": 1,
+        "total_layer_num": 100,
+        "mc_percent": 0,
+        "mc_remaining_time": 12
+      }
+    },
+    { "action": "wait", "durationMs": 750 },
+    { "action": "status", "state": "RUNNING", "payload": { "layer_num": 25, "mc_percent": 25 } },
+    { "action": "wait", "durationMs": 750 },
+    { "action": "status", "state": "PAUSE", "payload": { "layer_num": 30, "mc_percent": 30 } },
+    { "action": "wait", "durationMs": 750 },
+    { "action": "status", "state": "RUNNING", "payload": { "layer_num": 30, "mc_percent": 30 } },
+    { "action": "wait", "durationMs": 750 },
+    {
+      "action": "status",
+      "state": "FINISH",
+      "payload": { "layer_num": 100, "mc_percent": 100, "mc_remaining_time": 0 }
+    }
+  ],
+  "expect": {
+    "final": { "running": true, "connected": true, "state": "FINISH", "progressPercent": 100 },
+    "includeNotificationTitles": [
+      "Démarrage de l'impression",
+      "Impression en pause",
+      "Reprise de l'impression",
+      "Impression terminée"
+    ],
+    "excludeNotificationTitles": ["Communication perdue"]
+  }
+}
