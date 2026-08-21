@@ -563,6 +563,79 @@ describe("BambuLabClient MQTT lifecycle", () => {
     await vi.waitFor(() => expect(observedProgress).toEqual([10, 20]));
   });
 
+  it("drains accepted MQTT messages and rejects new messages before ending the transport", async () => {
+    const statusProcessing = Promise.withResolvers<void>();
+    const observedProgress: number[] = [];
+    client.on("status", async status => {
+      observedProgress.push(status.progressPercent);
+      await statusProcessing.promise;
+    });
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+
+    const message = (progressPercent: number): Buffer =>
+      Buffer.from(
+        JSON.stringify({
+          print: {
+            command: MessageCommand.PUSH_STATUS,
+            gcode_state: PrintState.RUNNING,
+            mc_percent: progressPercent
+          }
+        })
+      );
+    mqttClient.emit("message", "device/SERIAL-1/report", message(10));
+    await vi.waitFor(() => expect(observedProgress).toEqual([10]));
+
+    const disconnect = client.disconnect();
+    mqttClient.emit("message", "device/SERIAL-1/report", message(20));
+    await Promise.resolve();
+    expect(mqttClient.endAsync).not.toHaveBeenCalled();
+
+    statusProcessing.resolve();
+    await disconnect;
+
+    expect(observedProgress).toEqual([10]);
+    expect(mqttClient.endAsync).toHaveBeenCalledOnce();
+  });
+
+  it("restores the light for an accepted screenshot before disconnect and skips new screenshots", async () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    const capture = Promise.withResolvers<Buffer | null>();
+    mqttClient.publish.mockImplementation((_topic, payload, callback) => {
+      const message = JSON.parse(payload) as { system?: { led_mode: LightMode } };
+      if (message.system) {
+        events.push(`light:${message.system.led_mode}`);
+      }
+      callback?.();
+    });
+    mqttClient.endAsync.mockImplementation(async () => {
+      events.push("mqtt:end");
+    });
+    takeScreenshotMock.mockReturnValue(capture.promise);
+    const connection = client.connect();
+    mqttClient.emit("connect");
+    await connection;
+    events.length = 0;
+
+    const screenshot = client.takeScreenshotWithLight();
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(events).toEqual([`light:${LightMode.ON}`]);
+
+    const disconnect = client.disconnect();
+    await expect(client.takeScreenshotWithLight()).resolves.toBeNull();
+    expect(mqttClient.endAsync).not.toHaveBeenCalled();
+    expect(takeScreenshotMock).toHaveBeenCalledOnce();
+
+    capture.resolve(Buffer.from("screenshot"));
+    await expect(screenshot).resolves.toEqual(Buffer.from("screenshot"));
+    await disconnect;
+
+    expect(events).toEqual([`light:${LightMode.ON}`, `light:${LightMode.OFF}`, "mqtt:end"]);
+    expect(takeScreenshotMock).toHaveBeenCalledOnce();
+  });
+
   it("awaits transport shutdown and disconnects idempotently", async () => {
     let finishShutdown: (() => void) | undefined;
     mqttClient.endAsync.mockImplementation(
@@ -587,7 +660,7 @@ describe("BambuLabClient MQTT lifecycle", () => {
 
     expect(firstDisconnected).toBe(false);
     expect(secondDisconnected).toBe(false);
-    expect(mqttClient.endAsync).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(mqttClient.endAsync).toHaveBeenCalledOnce());
     finishShutdown?.();
     await Promise.all([firstDisconnect, secondDisconnect]);
     expect(firstDisconnected).toBe(true);
