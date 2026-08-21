@@ -2,7 +2,7 @@
   "name": "bambu-lab-discord",
   "version": "2.5.0",
   "private": true,
-  "description": "",
+  "description": "Discord bot for monitoring Bambu Lab 3D printers over MQTT",
   "packageManager": "pnpm@11.0.9",
   "engines": {
     "node": ">=24 <25"
@@ -27,14 +27,11 @@
     "debug:discord-test": "tsx --env-file=.env src/tools/debug-discord-test.ts",
     "debug:rtc": "tsx --env-file=.env src/tools/debug-rtc.ts"
   },
-  "keywords": [],
-  "author": "",
   "license": "ISC",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
     "@types/node": "^24.13.3",
-    "@typescript-eslint/parser": "^8.67.0",
     "@vitest/coverage-v8": "^4.1.11",
     "aedes": "1.1.1",
     "eslint": "^10.8.1",
