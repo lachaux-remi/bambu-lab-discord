@@ -1,5 +1,6 @@
 import * as tls from "tls";
 
+import { BAMBU_USERNAME } from "../../constants";
 import { getBambuTlsOptions, isTlsCertificateError } from "../bambu-tls";
 import { getLogger } from "../logger";
 
@@ -107,7 +108,7 @@ export const takeScreenshotFromBambuStream = (
         },
         () => {
           logger.debug({ ip, port }, "Connected to Bambu camera stream");
-          const authPayload = buildAuthPayload("bblp", accessCode);
+          const authPayload = buildAuthPayload(BAMBU_USERNAME, accessCode);
           socket?.write(authPayload);
         }
       );

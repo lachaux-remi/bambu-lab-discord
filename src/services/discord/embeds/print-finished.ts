@@ -1,3 +1,9 @@
+import {
+  PROJECT_IMAGE_ATTACHMENT_NAME,
+  PROJECT_IMAGE_ATTACHMENT_URL,
+  SCREENSHOT_ATTACHMENT_NAME,
+  SCREENSHOT_ATTACHMENT_URL
+} from "../../../constants";
 import type { DiscordFileAttachment, EmbedResult } from "../../../types/discord";
 import type { Status } from "../../../types/printer-status";
 import { formatMinuteToBestDisplay, timeDiffInMinutes } from "../../../utils/time.util";
@@ -21,13 +27,13 @@ export const printFinished = async (
     .setDescription(`L'imprimante a fini d'imprimer${time}.`);
 
   if (status.projectImage) {
-    embed.setThumbnail("attachment://project.png");
-    files.push({ name: "project.png", buffer: status.projectImage });
+    embed.setThumbnail(PROJECT_IMAGE_ATTACHMENT_URL);
+    files.push({ name: PROJECT_IMAGE_ATTACHMENT_NAME, buffer: status.projectImage });
   }
 
   if (screenshot) {
-    embed.setImage("attachment://screenshot.jpg");
-    files.push({ name: "screenshot.jpg", buffer: screenshot });
+    embed.setImage(SCREENSHOT_ATTACHMENT_URL);
+    files.push({ name: SCREENSHOT_ATTACHMENT_NAME, buffer: screenshot });
   }
 
   return { embed, files: files.length > 0 ? files : undefined };

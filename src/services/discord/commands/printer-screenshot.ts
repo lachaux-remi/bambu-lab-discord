@@ -1,5 +1,6 @@
 import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
+import { SCREENSHOT_ATTACHMENT_NAME, SCREENSHOT_ATTACHMENT_URL } from "../../../constants";
 import { ForumTag } from "../../../enums";
 import { getPrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
@@ -30,12 +31,12 @@ export const handlePrinterScreenshot = async (interaction: ChatInputCommandInter
   const embed = createBaseEmbed()
     .setTitle(`📸 Test de capture — ${printer.name}`)
     .setDescription("Notification de test générée manuellement depuis Discord.")
-    .setImage("attachment://screenshot.jpg");
+    .setImage(SCREENSHOT_ATTACHMENT_URL);
   const threadId = await createPrintThread(
     `camera-test:${printer.id}:${Date.now()}`,
     `📸 Test caméra — ${printer.name}`,
     embed,
-    [{ name: "screenshot.jpg", buffer: screenshot }],
+    [{ name: SCREENSHOT_ATTACHMENT_NAME, buffer: screenshot }],
     [ForumTag.ATTENTION, printer.name],
     printer.forumChannelId
   );

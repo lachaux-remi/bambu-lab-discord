@@ -1,7 +1,7 @@
 import { MqttClient, connect } from "mqtt";
 import EventEmitter from "node:events";
 
-import { CHAMBER_LIGHT_WARMUP_MS, ERROR_LOG_COOLDOWN_MS, MQTT_PROTOCOL } from "../../constants";
+import { BAMBU_USERNAME, CHAMBER_LIGHT_WARMUP_MS, ERROR_LOG_COOLDOWN_MS, MQTT_PROTOCOL } from "../../constants";
 import { LightMode, LightNode, MessageCommand } from "../../enums";
 import { getBambuTlsOptions, isTlsCertificateError } from "../../libs/bambu-tls";
 import { getLogger } from "../../libs/logger";
@@ -122,7 +122,7 @@ export default class BambuLabClient extends EventEmitter {
       logger.info({ printer: this.config.name, ip: this.config.ip }, "Connecting to printer...");
 
       const mqttClient = connect(this.brokerAddress, {
-        username: "bblp",
+        username: BAMBU_USERNAME,
         password: this.config.accessCode,
         connectTimeout: this.connectTimeoutMs,
         reconnectPeriod: 5000,
