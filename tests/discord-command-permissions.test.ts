@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const seams = vi.hoisted(() => ({
   client: { on: vi.fn() },
+  loggerError: vi.fn(),
   add: vi.fn(),
   edit: vi.fn(),
   list: vi.fn(),
@@ -12,6 +13,9 @@ const seams = vi.hoisted(() => ({
   status: vi.fn()
 }));
 
+vi.mock("../src/libs/logger", () => ({
+  getLogger: () => ({ error: seams.loggerError, info: vi.fn() })
+}));
 vi.mock("../src/services/discord/bot", () => ({ getDiscordClient: () => seams.client }));
 vi.mock("../src/services/discord/commands/printer-add", () => ({ handlePrinterAdd: seams.add }));
 vi.mock("../src/services/discord/commands/printer-edit", () => ({ handlePrinterEdit: seams.edit }));
@@ -29,7 +33,13 @@ describe("printer slash command permissions", () => {
   const installHandler = async () => {
     const { setupCommandHandlers } = await import("../src/services/discord/commands");
     setupCommandHandlers();
-    return seams.client.on.mock.calls[0][1] as (interaction: unknown) => Promise<void>;
+    return seams.client.on.mock.calls[0][1] as (interaction: unknown) => void;
+  };
+
+  const installAutocompleteHandler = async () => {
+    const { setupCommandHandlers } = await import("../src/services/discord/commands");
+    setupCommandHandlers();
+    return seams.client.on.mock.calls[1][1] as (interaction: unknown) => void;
   };
 
   const interaction = (permissions: PermissionsBitField, subcommand = "list") => ({
@@ -106,9 +116,9 @@ describe("printer slash command permissions", () => {
     request.deferred = true;
     seams.reconnect.mockRejectedValueOnce(new Error("reconnect failed"));
 
-    await handler(request);
+    handler(request);
 
-    expect(request.editReply).toHaveBeenCalledWith("Une erreur est survenue");
+    await vi.waitFor(() => expect(request.editReply).toHaveBeenCalledWith("Une erreur est survenue"));
     expect(request.reply).not.toHaveBeenCalled();
   });
 
@@ -119,9 +129,9 @@ describe("printer slash command permissions", () => {
     request.deferred = true;
     seams.list.mockRejectedValueOnce(new Error("failure after defer"));
 
-    await handler(request);
+    handler(request);
 
-    expect(request.editReply).toHaveBeenCalledWith("Une erreur est survenue");
+    await vi.waitFor(() => expect(request.editReply).toHaveBeenCalledWith("Une erreur est survenue"));
     expect(request.reply).not.toHaveBeenCalled();
     expect(request.followUp).not.toHaveBeenCalled();
   });
@@ -133,13 +143,76 @@ describe("printer slash command permissions", () => {
     request.replied = true;
     seams.list.mockRejectedValueOnce(new Error("failure after reply"));
 
-    await handler(request);
+    handler(request);
 
-    expect(request.followUp).toHaveBeenCalledWith({
-      content: "Une erreur est survenue",
-      flags: MessageFlags.Ephemeral
-    });
+    await vi.waitFor(() =>
+      expect(request.followUp).toHaveBeenCalledWith({
+        content: "Une erreur est survenue",
+        flags: MessageFlags.Ephemeral
+      })
+    );
     expect(request.reply).not.toHaveBeenCalled();
     expect(request.editReply).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { responseMethod: "reply", replied: false, deferred: false },
+    { responseMethod: "editReply", replied: false, deferred: true },
+    { responseMethod: "followUp", replied: true, deferred: false }
+  ] as const)("handles rejection from both a command and $responseMethod", async state => {
+    const { PermissionFlagsBits } = await import("discord.js");
+    const handler = await installHandler();
+    const request = interaction(new PermissionsBitField(PermissionFlagsBits.ManageGuild));
+    const commandError = new Error("command failed");
+    const responseError = new Error("error response failed");
+    const unhandled: unknown[] = [];
+    const onUnhandled = (error: unknown) => unhandled.push(error);
+    request.replied = state.replied;
+    request.deferred = state.deferred;
+    seams.list.mockRejectedValueOnce(commandError);
+    request[state.responseMethod].mockRejectedValueOnce(responseError);
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+      handler(request);
+      await vi.waitFor(() =>
+        expect(seams.loggerError).toHaveBeenCalledWith(
+          { error: responseError, commandError, subcommand: "list" },
+          "Failed to send command error response"
+        )
+      );
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("handles and logs a rejected empty autocomplete response", async () => {
+    const handler = await installAutocompleteHandler();
+    const responseError = new Error("autocomplete response failed");
+    const unhandled: unknown[] = [];
+    const onUnhandled = (error: unknown) => unhandled.push(error);
+    const request = {
+      commandName: "printer",
+      isAutocomplete: () => true,
+      memberPermissions: new PermissionsBitField([]),
+      respond: vi.fn().mockRejectedValue(responseError)
+    };
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+      handler(request);
+      await vi.waitFor(() =>
+        expect(seams.loggerError).toHaveBeenCalledWith({ error: responseError }, "Error handling autocomplete")
+      );
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(request.respond).toHaveBeenCalledWith([]);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 });

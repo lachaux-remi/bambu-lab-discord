@@ -2,9 +2,10 @@ import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
 import { getPrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
+import { PRINTER_OPTION } from "./contract";
 
 export const handlePrinterReconnect = async (interaction: ChatInputCommandInteraction): Promise<void> => {
-  const printerId = interaction.options.getString("name", true);
+  const printerId = interaction.options.getString(PRINTER_OPTION.NAME, true);
   const printer = getPrinter(printerId);
   if (!printer) {
     await interaction.reply({

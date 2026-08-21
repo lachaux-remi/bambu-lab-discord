@@ -4,6 +4,7 @@ import { PrintState } from "../../../enums";
 import { formatMinuteToBestDisplay } from "../../../utils/time.util";
 import { getPrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
+import { PRINTER_OPTION } from "./contract";
 
 const PRINT_STATE_LABELS: Record<PrintState, string> = {
   [PrintState.UNKNOWN]: "Inconnu",
@@ -19,7 +20,7 @@ const displayNumber = (value: number | undefined, suffix = ""): string =>
   Number.isFinite(value) ? `${value}${suffix}` : "Non disponible";
 
 export const handlePrinterStatus = async (interaction: ChatInputCommandInteraction): Promise<void> => {
-  const printerId = interaction.options.getString("name", true);
+  const printerId = interaction.options.getString(PRINTER_OPTION.NAME, true);
   const printer = getPrinter(printerId);
   if (!printer) {
     await interaction.reply({

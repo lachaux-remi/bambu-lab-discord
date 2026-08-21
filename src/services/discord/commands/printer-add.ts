@@ -5,17 +5,18 @@ import { getLogger } from "../../../libs/logger";
 import { addPrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
 import { ensurePrinterTag } from "../bot";
+import { PRINTER_OPTION } from "./contract";
 
 const logger = getLogger("PrinterAdd");
 
 export const handlePrinterAdd = async (interaction: ChatInputCommandInteraction): Promise<void> => {
-  const name = interaction.options.getString("name", true);
-  const ip = interaction.options.getString("ip", true);
-  const serial = interaction.options.getString("serial", true);
-  const accessCode = interaction.options.getString("access_code", true);
-  const channel = interaction.options.getChannel("channel", true);
-  const port = interaction.options.getInteger("port") ?? DEFAULT_MQTT_PORT;
-  const rtcPort = interaction.options.getInteger("rtc_port") ?? DEFAULT_RTC_PORT;
+  const name = interaction.options.getString(PRINTER_OPTION.NAME, true);
+  const ip = interaction.options.getString(PRINTER_OPTION.IP, true);
+  const serial = interaction.options.getString(PRINTER_OPTION.SERIAL, true);
+  const accessCode = interaction.options.getString(PRINTER_OPTION.ACCESS_CODE, true);
+  const channel = interaction.options.getChannel(PRINTER_OPTION.CHANNEL, true);
+  const port = interaction.options.getInteger(PRINTER_OPTION.PORT) ?? DEFAULT_MQTT_PORT;
+  const rtcPort = interaction.options.getInteger(PRINTER_OPTION.RTC_PORT) ?? DEFAULT_RTC_PORT;
 
   // Vérifier que c'est un forum channel
   if (channel.type !== ChannelType.GuildForum) {

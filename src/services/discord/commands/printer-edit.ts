@@ -6,11 +6,12 @@ import type { PrinterConfig } from "../../../types/printer-config";
 import { getPrinter, updatePrinter } from "../../database";
 import { printerManager } from "../../printer-manager";
 import { ensurePrinterTag } from "../bot";
+import { PRINTER_OPTION } from "./contract";
 
 const logger = getLogger("PrinterEdit");
 
 export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction): Promise<void> => {
-  const printerId = interaction.options.getString("name", true);
+  const printerId = interaction.options.getString(PRINTER_OPTION.NAME, true);
 
   const printer = getPrinter(printerId);
   if (!printer) {
@@ -22,14 +23,14 @@ export const handlePrinterEdit = async (interaction: ChatInputCommandInteraction
   }
   const wasRunning = printerManager.getPrinterStatus(printerId).running;
 
-  const newName = interaction.options.getString("new_name");
-  const ip = interaction.options.getString("ip");
-  const serial = interaction.options.getString("serial");
-  const accessCode = interaction.options.getString("access_code");
-  const channel = interaction.options.getChannel("channel");
-  const port = interaction.options.getInteger("port");
-  const rtcPort = interaction.options.getInteger("rtc_port");
-  const enabled = interaction.options.getBoolean("enabled");
+  const newName = interaction.options.getString(PRINTER_OPTION.NEW_NAME);
+  const ip = interaction.options.getString(PRINTER_OPTION.IP);
+  const serial = interaction.options.getString(PRINTER_OPTION.SERIAL);
+  const accessCode = interaction.options.getString(PRINTER_OPTION.ACCESS_CODE);
+  const channel = interaction.options.getChannel(PRINTER_OPTION.CHANNEL);
+  const port = interaction.options.getInteger(PRINTER_OPTION.PORT);
+  const rtcPort = interaction.options.getInteger(PRINTER_OPTION.RTC_PORT);
+  const enabled = interaction.options.getBoolean(PRINTER_OPTION.ENABLED);
 
   // Vérifier si le channel est un forum
   if (channel && channel.type !== ChannelType.GuildForum) {
