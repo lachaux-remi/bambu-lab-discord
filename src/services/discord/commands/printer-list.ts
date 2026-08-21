@@ -18,8 +18,18 @@ interface PrinterField {
   value: string;
 }
 
-const truncate = (value: string, maximum: number): string =>
-  value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`;
+const truncate = (value: string, maximum: number): string => {
+  if (value.length <= maximum) {
+    return value;
+  }
+
+  let end = maximum - 1;
+  const finalCodeUnit = value.charCodeAt(end - 1);
+  if (finalCodeUnit >= 0xd800 && finalCodeUnit <= 0xdbff) {
+    end -= 1;
+  }
+  return `${value.slice(0, end)}…`;
+};
 
 export const handlePrinterList = async (interaction: ChatInputCommandInteraction): Promise<void> => {
   const printers = getAllPrinters();
@@ -63,28 +73,29 @@ export const handlePrinterList = async (interaction: ChatInputCommandInteraction
   }
   pages.push(fields);
 
-  const embeds = pages.map((page, index) =>
-    new EmbedBuilder()
-      .setTitle(EMBED_TITLE)
-      .setColor("#24a543")
-      .addFields(page)
-      .setFooter({ text: `Page ${index + 1}/${pages.length}` })
-      .setTimestamp()
-  );
+  const embedPages = pages.map((page, index) => {
+    const footerText = `Page ${index + 1}/${pages.length}`;
+    return {
+      embed: new EmbedBuilder()
+        .setTitle(EMBED_TITLE)
+        .setColor("#24a543")
+        .addFields(page)
+        .setFooter({ text: footerText })
+        .setTimestamp(),
+      textLength:
+        EMBED_TITLE.length +
+        footerText.length +
+        page.reduce((total, field) => total + field.name.length + field.value.length, 0)
+    };
+  });
   const batches: EmbedBuilder[][] = [];
   let batch: EmbedBuilder[] = [];
   let batchTextLength = 0;
 
-  for (const [index, embed] of embeds.entries()) {
-    const footerLength = `Page ${index + 1}/${pages.length}`.length;
-    const embedTextLength =
-      EMBED_TITLE.length +
-      footerLength +
-      pages[index].reduce((total, field) => total + field.name.length + field.value.length, 0);
-
+  for (const { embed, textLength } of embedPages) {
     if (
       batch.length === MAX_EMBEDS_PER_MESSAGE ||
-      (batch.length > 0 && batchTextLength + embedTextLength > MAX_MESSAGE_EMBED_TEXT_LENGTH)
+      (batch.length > 0 && batchTextLength + textLength > MAX_MESSAGE_EMBED_TEXT_LENGTH)
     ) {
       batches.push(batch);
       batch = [];
@@ -92,7 +103,7 @@ export const handlePrinterList = async (interaction: ChatInputCommandInteraction
     }
 
     batch.push(embed);
-    batchTextLength += embedTextLength;
+    batchTextLength += textLength;
   }
   batches.push(batch);
 

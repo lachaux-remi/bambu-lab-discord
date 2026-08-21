@@ -926,7 +926,9 @@ export class PrintNotificationCoordinator {
           const lossEventIndex = this.state.events.findIndex(candidate => candidate.id === event.id);
           if (recoveryEventIndex > lossEventIndex + 1) {
             const [recoveryEvent] = this.state.events.splice(recoveryEventIndex, 1);
-            this.state.events.splice(lossEventIndex + 1, 0, recoveryEvent);
+            if (recoveryEvent) {
+              this.state.events.splice(lossEventIndex + 1, 0, recoveryEvent);
+            }
           }
         }
         if (firstStatus) {

@@ -69,7 +69,7 @@ describe.sequential("Discord forum mutation serialization", () => {
     await vi.waitFor(() => expect(forum.edit).toHaveBeenCalledTimes(2));
     expect(discord.fetch).toHaveBeenCalledTimes(2);
     expect(maximumActiveEdits).toBe(1);
-    expect(editPayloads[1].availableTags.map(tag => tag.name)).toEqual([
+    expect(editPayloads[1]?.availableTags.map(tag => tag.name)).toEqual([
       "En cours",
       "Réussi",
       "Échoué",

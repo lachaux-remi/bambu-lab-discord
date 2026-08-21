@@ -19,8 +19,15 @@ export const handlePrinterRemove = async (interaction: ChatInputCommandInteracti
     return;
   }
 
-  // Arrêter l'imprimante si elle est en cours d'exécution
-  await printerManager.stopPrinter(printerId);
+  const wasRunning = printerManager.getPrinterStatus(printerId).running;
+  const stopped = await printerManager.stopPrinter(printerId);
+  if (wasRunning && !stopped) {
+    await interaction.reply({
+      content: `❌ Impossible de supprimer l'imprimante **${printer.name}**`,
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
 
   // Supprimer de la base de données
   const success = removePrinter(printerId);
@@ -32,6 +39,15 @@ export const handlePrinterRemove = async (interaction: ChatInputCommandInteracti
       flags: MessageFlags.Ephemeral
     });
   } else {
+    if (wasRunning) {
+      try {
+        if (!(await printerManager.startPrinter(printerId))) {
+          logger.error({ printerId }, "Failed to restart printer after removal persistence failure");
+        }
+      } catch (error) {
+        logger.error({ error, printerId }, "Failed to restart printer after removal persistence failure");
+      }
+    }
     await interaction.reply({
       content: `❌ Impossible de supprimer l'imprimante **${printer.name}**`,
       flags: MessageFlags.Ephemeral

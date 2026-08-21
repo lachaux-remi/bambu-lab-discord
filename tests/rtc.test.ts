@@ -59,7 +59,7 @@ describe("RTC stream", () => {
       },
       expect.any(Function)
     );
-    const authPayload = socket.write.mock.calls[0][0] as Buffer;
+    const authPayload = socket.write.mock.calls[0]![0] as Buffer;
     expect(authPayload).toHaveLength(80);
     expect(authPayload.readUInt32LE(0)).toBe(0x40);
     expect(authPayload.subarray(16, 20).toString("ascii")).toBe("bblp");

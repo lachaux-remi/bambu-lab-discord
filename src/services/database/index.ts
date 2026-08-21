@@ -129,7 +129,7 @@ const decryptAccessCode = (printerId: string, accessCode: string, key: Buffer | 
     throw new Error("Encrypted printer access code has an invalid format");
   }
 
-  const [encodedIv, encodedAuthenticationTag, encodedValue] = parts;
+  const [encodedIv, encodedAuthenticationTag, encodedValue] = parts as [string, string, string];
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(encodedIv, "base64"));
   decipher.setAAD(Buffer.from(printerId, "utf8"));
   decipher.setAuthTag(Buffer.from(encodedAuthenticationTag, "base64"));
