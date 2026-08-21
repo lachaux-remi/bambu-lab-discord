@@ -6,6 +6,7 @@ const seams = vi.hoisted(() => ({
   add: vi.fn(),
   edit: vi.fn(),
   list: vi.fn(),
+  reconnect: vi.fn(),
   remove: vi.fn(),
   screenshot: vi.fn(),
   status: vi.fn()
@@ -15,6 +16,7 @@ vi.mock("../src/services/discord/bot", () => ({ getDiscordClient: () => seams.cl
 vi.mock("../src/services/discord/commands/printer-add", () => ({ handlePrinterAdd: seams.add }));
 vi.mock("../src/services/discord/commands/printer-edit", () => ({ handlePrinterEdit: seams.edit }));
 vi.mock("../src/services/discord/commands/printer-list", () => ({ handlePrinterList: seams.list }));
+vi.mock("../src/services/discord/commands/printer-reconnect", () => ({ handlePrinterReconnect: seams.reconnect }));
 vi.mock("../src/services/discord/commands/printer-remove", () => ({ handlePrinterRemove: seams.remove }));
 vi.mock("../src/services/discord/commands/printer-screenshot", () => ({ handlePrinterScreenshot: seams.screenshot }));
 vi.mock("../src/services/discord/commands/printer-status", () => ({ handlePrinterStatus: seams.status }));
@@ -85,6 +87,29 @@ describe("printer slash command permissions", () => {
     await handler(request);
 
     expect(seams.status).toHaveBeenCalledWith(request);
+  });
+
+  it("dispatches reconnect for a member with ManageGuild", async () => {
+    const { PermissionFlagsBits } = await import("discord.js");
+    const handler = await installHandler();
+    const request = interaction(new PermissionsBitField(PermissionFlagsBits.ManageGuild), "reconnect");
+
+    await handler(request);
+
+    expect(seams.reconnect).toHaveBeenCalledWith(request);
+  });
+
+  it("uses the global deferred error response when reconnect throws", async () => {
+    const { PermissionFlagsBits } = await import("discord.js");
+    const handler = await installHandler();
+    const request = interaction(new PermissionsBitField(PermissionFlagsBits.ManageGuild), "reconnect");
+    request.deferred = true;
+    seams.reconnect.mockRejectedValueOnce(new Error("reconnect failed"));
+
+    await handler(request);
+
+    expect(request.editReply).toHaveBeenCalledWith("Une erreur est survenue");
+    expect(request.reply).not.toHaveBeenCalled();
   });
 
   it("edits a deferred reply when the command fails after deferReply", async () => {

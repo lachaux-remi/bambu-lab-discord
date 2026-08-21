@@ -369,6 +369,37 @@ describe("PrinterManager public seam", () => {
     expect(mocks.clients[1].connect).toHaveBeenCalledOnce();
   });
 
+  it("starts an unavailable configured printer and shares that serialized restart with a concurrent start", async () => {
+    let finishConnection: (() => void) | undefined;
+    mocks.state.nextConnection = new Promise<void>(resolve => {
+      finishConnection = resolve;
+    });
+    const { printerManager } = await import("../src/services/printer-manager");
+
+    const restart = printerManager.restartPrinter(config.id);
+    const concurrentStart = printerManager.startPrinter(config.id);
+
+    await vi.waitFor(() => expect(mocks.Client).toHaveBeenCalledOnce());
+    expect(mocks.clients[0].connect).toHaveBeenCalledOnce();
+    finishConnection?.();
+    await expect(Promise.all([restart, concurrentStart])).resolves.toEqual([true, true]);
+    expect(printerManager.getRunningPrinters()).toEqual([config.id]);
+  });
+
+  it("replaces the retained mqtt client when it is reconnecting automatically", async () => {
+    mocks.state.nextConnectionError = new Error("offline");
+    const { printerManager } = await import("../src/services/printer-manager");
+    await expect(printerManager.startPrinter(config.id)).resolves.toBe(false);
+    expect(printerManager.getPrinterStatus(config.id)).toEqual({ running: true, connected: false });
+
+    await expect(printerManager.restartPrinter(config.id)).resolves.toBe(true);
+
+    expect(mocks.clients[0].disconnect).toHaveBeenCalledOnce();
+    expect(mocks.Client).toHaveBeenCalledTimes(2);
+    expect(mocks.clients[1].connect).toHaveBeenCalledOnce();
+    expect(printerManager.getPrinterStatus(config.id)).toEqual({ running: true, connected: true });
+  });
+
   it("lets stop cancel a restart replacement without deadlocking the operation queue", async () => {
     const { printerManager } = await import("../src/services/printer-manager");
     await printerManager.startPrinter(config.id);
