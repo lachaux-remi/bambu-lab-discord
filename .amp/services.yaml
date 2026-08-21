@@ -1,0 +1,7 @@
+services:
+  mqtt-printer-bench:
+    command: pnpm run dev:mqtt-emulator -- --port "$PORT"
+    health: /api/health
+    portal:
+      title: Banc imprimante MQTT
+      description: Piloter la fausse imprimante avec Discord mocké par défaut.

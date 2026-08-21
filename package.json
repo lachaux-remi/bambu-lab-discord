@@ -10,7 +10,7 @@
   "main": "dist/index.js",
   "scripts": {
     "clean": "rimraf dist",
-    "build": "pnpm run clean && tsc && mkdir -p dist/libs/bambu-tls && cp src/libs/bambu-tls/bambu-printer-ca.pem dist/libs/bambu-tls/bambu-printer-ca.pem",
+    "build": "pnpm run clean && tsc && mkdir -p dist/libs/bambu-tls dist/tools/mock-mqtt-printer && cp src/libs/bambu-tls/bambu-printer-ca.pem dist/libs/bambu-tls/bambu-printer-ca.pem && cp -R src/tools/mock-mqtt-printer/web dist/tools/mock-mqtt-printer/web",
     "start": "node dist/index.js",
     "local": "tsx --env-file-if-exists=.env src/index.ts",
     "local:watch": "nodemon",
@@ -18,7 +18,7 @@
     "test:mqtt-scenario": "tsx src/tools/mock-mqtt-printer.ts --ci",
     "lint": "eslint src/ tests/ vitest.config.mts --max-warnings 0 && pnpm run format:check",
     "lint:fix": "eslint src/ tests/ vitest.config.mts --fix",
-    "format:check": "prettier --check '.github/**/*.{json,yml,yaml}' 'scenarios/**/*.json' .prettierrc .release-please-manifest.json compose.yaml eslint.config.mjs nodemon.json package.json release-please-config.json tsconfig.json tsconfig.test.json vitest.config.mts",
+    "format:check": "prettier --check '.amp/**/*.yaml' '.github/**/*.{json,yml,yaml}' 'scenarios/**/*.json' 'src/tools/mock-mqtt-printer/web/**/*.{css,html,js}' .prettierrc .release-please-manifest.json compose.yaml eslint.config.mjs nodemon.json package.json release-please-config.json tsconfig.json tsconfig.test.json vitest.config.mts",
     "typecheck:test": "tsc --project tsconfig.test.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

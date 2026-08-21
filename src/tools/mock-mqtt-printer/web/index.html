@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Banc imprimante MQTT</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Bambu Lab Discord</p>
+        <h1>Banc imprimante MQTT</h1>
+        <p class="subtitle">Pilotez le vrai client et le vrai gestionnaire sans imprimante LAN.</p>
+      </div>
+      <div class="badges" aria-label="État de la simulation">
+        <span class="badge badge-muted" id="mqtt-badge">MQTT arrêté</span>
+        <span class="badge badge-muted" id="print-badge">État inconnu</span>
+        <span class="badge badge-mock" id="discord-badge">Discord mocké</span>
+      </div>
+    </header>
+
+    <main>
+      <aside class="notice warning hidden" id="restart-warning" role="status">
+        <strong>Configuration locale restaurée.</strong>
+        Le formulaire et la chronologie ont été récupérés, mais aucune session MQTT n’est restaurée silencieusement.
+        Démarrez une nouvelle simulation avant de rejouer des actions.
+      </aside>
+      <aside class="notice error hidden" id="error-banner" role="alert"></aside>
+
+      <section class="panel setup-panel">
+        <div class="section-heading">
+          <div>
+            <p class="step">01 · Session</p>
+            <h2>Fausse imprimante</h2>
+          </div>
+          <div class="actions">
+            <button class="secondary" id="stop-session" type="button">Arrêter</button>
+            <button class="primary" id="start-session" type="button">Démarrer la simulation</button>
+          </div>
+        </div>
+
+        <div class="form-grid setup-grid">
+          <label>
+            Nom imprimante
+            <input id="printer-name" value="MQTT Scenario Bench" maxlength="100" />
+          </label>
+          <label>
+            Identifiant
+            <input id="printer-id" value="mock-scenario-printer" maxlength="64" />
+          </label>
+          <label>
+            Numéro de série
+            <input id="printer-serial" value="MOCK_SCENARIO_SERIAL" maxlength="128" />
+          </label>
+          <label>
+            Code d’accès simulé
+            <input id="printer-access-code" value="mock-scenario-access-code" maxlength="128" />
+          </label>
+          <label>
+            Vitesse globale
+            <div class="input-suffix">
+              <input id="session-speed" type="number" min="1" max="10000" value="100" /><span>×</span>
+            </div>
+          </label>
+          <div class="connection-card">
+            <span>Broker</span>
+            <strong id="broker-address">Non démarré</strong>
+            <small>Loopback uniquement; le portail relaie l’interface HTTP.</small>
+          </div>
+        </div>
+
+        <div class="setup-lower">
+          <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Choisir une image placeholder">
+            <img id="placeholder-preview" src="/api/placeholder" alt="Placeholder des notifications" />
+            <div>
+              <strong>Placeholder notification</strong>
+              <p>PNG ou JPEG, 10 Mio maximum. Cliquez ou déposez une image.</p>
+            </div>
+            <input id="placeholder-input" type="file" accept="image/png,image/jpeg" hidden />
+          </div>
+          <div class="discord-config" id="discord-config">
+            <label class="switch-row">
+              <span>
+                <strong>Discord réel</strong>
+                <small id="discord-availability">Indisponible sans activation serveur explicite</small>
+              </span>
+              <input id="discord-enabled" type="checkbox" role="switch" disabled />
+            </label>
+            <div class="discord-confirm hidden" id="discord-confirm">
+              <p>Les notifications seront publiques sur <strong id="discord-target">cible inconnue</strong>.</p>
+              <label class="check-row">
+                <input id="discord-confirmed" type="checkbox" />
+                Je confirme l’envoi réel et la conservation des threads.
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="workspace-grid">
+        <section class="panel controls-panel">
+          <div class="section-heading">
+            <div>
+              <p class="step">02 · Impression</p>
+              <h2>Contrôles courants</h2>
+            </div>
+            <span class="mode-pill" id="auto-state">Manuel</span>
+          </div>
+
+          <div class="form-grid">
+            <label class="span-2">
+              Nom du projet
+              <input id="project-name" value="Benchy UI scénarisé" maxlength="256" />
+            </label>
+            <label>
+              Modèle
+              <input id="model-id" value="benchy-ui" maxlength="128" />
+            </label>
+            <label>
+              Plateau
+              <input id="plate-index" type="number" min="1" value="1" />
+            </label>
+            <label>
+              Task ID
+              <input id="task-id" value="ui-task-1" maxlength="128" />
+            </label>
+            <label>
+              Subtask ID
+              <input id="subtask-id" value="ui-subtask-1" maxlength="128" />
+            </label>
+            <label class="span-2">
+              Fichier G-code
+              <input id="gcode-file" value="Metadata/plate_1.gcode" maxlength="256" />
+            </label>
+            <label>
+              Couches totales
+              <input id="total-layers" type="number" min="1" value="100" />
+            </label>
+            <label>
+              Durée logique
+              <div class="input-suffix">
+                <input id="duration-minutes" type="number" min="0.01" step="0.01" value="60" /><span>min</span>
+              </div>
+            </label>
+            <label>
+              Étapes automatiques
+              <input id="auto-steps" type="number" min="1" max="1000" value="10" />
+            </label>
+            <label>
+              Accélération auto
+              <div class="input-suffix">
+                <input id="auto-speed" type="number" min="1" max="10000" value="600" /><span>×</span>
+              </div>
+            </label>
+            <label class="check-card span-2">
+              <input id="multicolor" type="checkbox" />
+              <span
+                ><strong>Impression multicolore / AMS</strong
+                ><small>Émet un mapping AMS consommé par le bot.</small></span
+              >
+            </label>
+          </div>
+
+          <div class="button-grid start-buttons">
+            <button class="secondary" id="start-manual" type="button" disabled>Démarrer en manuel</button>
+            <button class="primary" id="start-auto" type="button" disabled>Lancer automatiquement</button>
+          </div>
+
+          <div class="progress-control">
+            <div class="progress-heading">
+              <label for="progress">Progression choisie</label>
+              <output id="progress-output" for="progress">25 %</output>
+            </div>
+            <input id="progress" type="range" min="0" max="100" value="25" />
+            <div class="form-grid compact-grid">
+              <label>Couche actuelle<input id="current-layer" type="number" min="0" value="25" /></label>
+              <label>Temps restant (min)<input id="remaining-time" type="number" min="0" value="45" /></label>
+              <button class="secondary align-end" id="send-progress" type="button" disabled>
+                Envoyer la progression
+              </button>
+            </div>
+          </div>
+
+          <div class="button-grid control-buttons">
+            <button class="warning-button" id="pause" type="button" disabled>Pause</button>
+            <button class="secondary" id="resume" type="button" disabled>Reprise</button>
+            <button class="success-button" id="finish" type="button" disabled>Succès</button>
+            <button class="danger-button" id="fail" type="button" disabled>Échec</button>
+            <button class="danger-ghost" id="cancel" type="button" disabled>Annulation</button>
+          </div>
+
+          <details class="advanced" id="advanced-panel">
+            <summary>
+              <span><strong>Défauts avancés</strong><small>Raw JSON, partiel, rafale et coupure MQTT</small></span>
+            </summary>
+            <div class="advanced-content">
+              <div class="fault-card">
+                <h3>Payload brut</h3>
+                <textarea id="raw-payload" rows="3">{"print":"fragment-malforme"</textarea>
+                <button class="secondary" id="send-raw" type="button" disabled>Envoyer brut</button>
+              </div>
+              <div class="fault-card">
+                <h3>Statut partiel</h3>
+                <p>Envoie couche et progression sans état.</p>
+                <button class="secondary" id="send-partial" type="button" disabled>Envoyer partiel</button>
+              </div>
+              <div class="fault-card">
+                <h3>Rafale bornée</h3>
+                <label>Messages<input id="burst-count" type="number" min="1" max="10000" value="64" /></label>
+                <button class="secondary" id="send-burst" type="button" disabled>PAUSE/RUNNING</button>
+              </div>
+              <div class="fault-card outage-card">
+                <h3>Coupure MQTT</h3>
+                <label
+                  >Durée logique<input id="outage-duration" type="number" min="0" max="600000" value="65000"
+                /></label>
+                <label
+                  >État de reprise
+                  <select id="outage-resume-state">
+                    <option>RUNNING</option>
+                    <option>PAUSE</option>
+                    <option>FINISH</option>
+                    <option>FAILED</option>
+                  </select>
+                </label>
+                <div class="button-grid">
+                  <button class="danger-ghost" id="disconnect" type="button" disabled>Couper</button>
+                  <button class="secondary" id="reconnect" type="button" disabled>Reconnecter</button>
+                </div>
+                <p class="provisional hidden" id="outage-provisional">
+                  Coupure provisoire — hors export jusqu’à reconnexion.
+                </p>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <section class="side-stack">
+          <article class="panel status-panel">
+            <div class="section-heading compact-heading">
+              <div>
+                <p class="step">État courant</p>
+                <h2 id="current-state">Non démarré</h2>
+              </div>
+              <span class="status-dot" id="connection-dot" aria-hidden="true"></span>
+            </div>
+            <dl class="status-list">
+              <div>
+                <dt>Projet</dt>
+                <dd id="current-project">—</dd>
+              </div>
+              <div>
+                <dt>Progression</dt>
+                <dd id="current-progress">—</dd>
+              </div>
+              <div>
+                <dt>Couches</dt>
+                <dd id="current-layers">—</dd>
+              </div>
+              <div>
+                <dt>Restant</dt>
+                <dd id="current-remaining">—</dd>
+              </div>
+              <div>
+                <dt>Couleurs</dt>
+                <dd id="current-colors">—</dd>
+              </div>
+              <div>
+                <dt>Pushall</dt>
+                <dd id="pushall-count">0</dd>
+              </div>
+            </dl>
+          </article>
+
+          <article class="panel notification-panel">
+            <div class="section-heading compact-heading">
+              <div>
+                <p class="step">Livraison</p>
+                <h2>Notifications</h2>
+              </div>
+              <span class="count" id="notification-count">0</span>
+            </div>
+            <ol class="event-list" id="notification-list">
+              <li class="empty">Aucune notification.</li>
+            </ol>
+          </article>
+        </section>
+      </div>
+
+      <section class="panel scenario-panel">
+        <div class="section-heading">
+          <div>
+            <p class="step">03 · Reproduction</p>
+            <h2>Chronologie JSON v1</h2>
+          </div>
+          <div class="actions">
+            <button class="secondary" id="load-timeline" type="button">Actualiser</button>
+            <button class="secondary" id="apply-scenario" type="button">Appliquer JSON</button>
+            <button class="secondary" id="replay-scenario" type="button">Rejouer</button>
+            <button class="primary" id="export-scenario" type="button">Exporter</button>
+          </div>
+        </div>
+        <p class="hint">
+          Les délais sont logiques, normalisés et éditables. Les attentes murales entre vos clics ne sont jamais
+          exportées.
+        </p>
+        <textarea id="scenario-editor" class="code-editor" rows="16" spellcheck="false"></textarea>
+      </section>
+
+      <section class="panel history-panel">
+        <div class="section-heading compact-heading">
+          <div>
+            <p class="step">Journal</p>
+            <h2>Actions et résultats</h2>
+          </div>
+          <span class="count" id="history-count">0</span>
+        </div>
+        <ol class="event-list history-list" id="history-list">
+          <li class="empty">La chronologie est vide.</li>
+        </ol>
+      </section>
+    </main>
+
+    <footer>
+      <p>Le placeholder est injecté dans les notifications. Aucun serveur RTC/TLS caméra n’est simulé.</p>
+      <p>Le protocole caméra reste couvert par les tests socket; la lumière physique exige une imprimante réelle.</p>
+    </footer>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

@@ -49,6 +49,10 @@ export class MockMqttPrinter {
     return this.receivedPushalls;
   }
 
+  public get isPaused(): boolean {
+    return !this.listening;
+  }
+
   public async start(): Promise<void> {
     if (this.broker) {
       return;
