@@ -12,7 +12,7 @@ const scenarioFiles = readdirSync(scenarioDirectory)
   .filter(file => file.endsWith(".json"))
   .sort();
 
-describe.sequential("scenario-driven mock MQTT printer", () => {
+describe("scenario-driven mock MQTT printer", { concurrent: false }, () => {
   it("validates every versioned scenario", () => {
     const scenarios = scenarioFiles.map(file => loadScenario(`${scenarioDirectory}${file}`));
 

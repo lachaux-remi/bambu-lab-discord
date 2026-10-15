@@ -138,7 +138,7 @@ const flushCurrentTimers = async (): Promise<void> => {
   }
 };
 
-describe.sequential("PrintNotificationCoordinator", () => {
+describe("PrintNotificationCoordinator", { concurrent: false }, () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);

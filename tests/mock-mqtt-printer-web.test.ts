@@ -418,7 +418,7 @@ describe("web bench HTTP adapter", () => {
   });
 });
 
-describe.sequential("web bench real engine integration", () => {
+describe("web bench real engine integration", { concurrent: false }, () => {
   it("drives the real BambuLabClient and PrinterManager with injected placeholder media", async () => {
     const controller = new WebBenchController();
     try {
