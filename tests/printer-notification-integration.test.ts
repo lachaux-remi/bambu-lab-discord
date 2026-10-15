@@ -95,7 +95,7 @@ const originalWorkingDirectory = process.cwd();
 let workingDirectory: string;
 let stopPrinterManager: (() => Promise<void>) | undefined;
 
-describe.sequential("PrinterManager notification integration", () => {
+describe("PrinterManager notification integration", { concurrent: false }, () => {
   beforeEach(() => {
     workingDirectory = mkdtempSync(join(tmpdir(), "printer-notification-integration-"));
     process.chdir(workingDirectory);
