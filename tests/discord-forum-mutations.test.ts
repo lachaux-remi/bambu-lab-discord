@@ -24,7 +24,7 @@ vi.mock("../src/constants", async importOriginal => {
   return { ...actual, DISCORD_BOT_TOKEN: "test-token" };
 });
 
-describe.sequential("Discord forum mutation serialization", () => {
+describe("Discord forum mutation serialization", { concurrent: false }, () => {
   afterEach(async () => {
     const { shutdownDiscordClient } = await import("../src/services/discord/bot");
     await shutdownDiscordClient();

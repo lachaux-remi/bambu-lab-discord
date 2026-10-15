@@ -90,7 +90,7 @@ const writePlaintextPrinterConfig = (): void => {
   );
 };
 
-describe.sequential("configuration persistence", () => {
+describe("configuration persistence", { concurrent: false }, () => {
   beforeEach(() => {
     workingDirectory = mkdtempSync(join(tmpdir(), "bambu-config-"));
     process.chdir(workingDirectory);

@@ -33,7 +33,7 @@ vi.mock("../src/constants", async importOriginal => {
   return { ...actual, DISCORD_BOT_TOKEN: "test-token" };
 });
 
-describe.sequential("reliable Discord delivery", () => {
+describe("reliable Discord delivery", { concurrent: false }, () => {
   beforeEach(async () => {
     discord.fetch.mockReset();
     logs.warn.mockReset();
