@@ -1,5 +1,0 @@
-{
-  "watch": ["src", ".env"],
-  "ext": ".ts,.json",
-  "exec": "pnpm run local"
-}
