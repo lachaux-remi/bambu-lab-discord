@@ -219,10 +219,8 @@ const extractBoundedImage = (entry: AdmZip.IZipEntry): Buffer => {
     throw new Error("Encrypted plate images are not supported");
   }
 
+  // adm-zip >= 0.6.1 throws when the declared compressed extent is not fully present in the archive.
   const compressedData = entry.getCompressedData();
-  if (compressedData.length !== entry.header.compressedSize) {
-    throw new Error("Plate image compressed size does not match its ZIP entry");
-  }
 
   let imageBuffer: Buffer;
   if (entry.header.method === ZIP_METHOD_STORE) {

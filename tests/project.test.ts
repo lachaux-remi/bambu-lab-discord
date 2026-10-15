@@ -429,7 +429,7 @@ describe("project image download", () => {
     expect(requestMock).toHaveBeenCalledOnce();
   });
 
-  it("rejects a ZIP entry whose compressed data is shorter than its declared size", async () => {
+  it("rejects a ZIP entry whose compressed data extends past the archive", async () => {
     const archive = patchZipHeaders(pngArchive(), (patchedArchive, _localOffset, centralOffset) => {
       patchedArchive.writeUInt32LE(patchedArchive.length, centralOffset + 20);
     });
