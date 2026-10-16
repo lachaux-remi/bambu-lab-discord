@@ -28,7 +28,7 @@ Bambu camera protocol. All images are attached directly to Discord messages (no 
 - `pnpm run build` - Clean and compile TypeScript to dist/
 - `pnpm run start` - Run the compiled application from dist/
 - `pnpm run local` - Run directly with tsx and load .env file
-- `pnpm run local:watch` - Run with nodemon for auto-reload on file changes
+- `pnpm run local:watch` - Run with Node watch mode and the tsx loader; restarts on source or `.env` changes
 
 ### Debug Tools
 
