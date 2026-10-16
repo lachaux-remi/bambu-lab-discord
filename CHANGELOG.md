@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.5.0...v2.5.1) (2026-10-16)
+
+
+### Corrections de bugs
+
+* **deps:** patch production dependency vulnerabilities ([#97](https://github.com/lachaux-remi/bambu-lab-discord/issues/97)) ([db14552](https://github.com/lachaux-remi/bambu-lab-discord/commit/db14552afce77af5ac5e309a395d6e4e09b3990a))
+
 ## [2.5.0](https://github.com/lachaux-remi/bambu-lab-discord/compare/v2.4.2...v2.5.0) (2026-08-21)
 
 
