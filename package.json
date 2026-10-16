@@ -1,6 +1,6 @@
 {
   "name": "bambu-lab-discord",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "private": true,
   "description": "Discord bot for monitoring Bambu Lab 3D printers over MQTT",
   "packageManager": "pnpm@11.0.9",
